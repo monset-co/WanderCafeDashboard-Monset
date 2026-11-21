@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { addDays, cents, fmtDateTime, fmtDay, intInput, manilaToday, moneyInput, nightsBetween, plural } from '../lib/util.js'
-import { BTN, Badge, CARD, Chips, EASE_OUT, Empty, FIELD, Kpis, LABEL, PageHeader, Problem, Segmented, Sheet, SkeletonRows, Submit, useToast } from '../components/ui.jsx'
+import { BTN, Badge, CARD, Chips, EASE_OUT, Empty, FIELD, HoldButton, Kpis, LABEL, PageHeader, Problem, Segmented, Sheet, SkeletonRows, Submit, useToast } from '../components/ui.jsx'
 import { useAuth } from '../auth.jsx'
 
 // ---- Words for every state: icon + label + tone, never colour alone ----
@@ -476,11 +476,18 @@ function BookingDrawer({ b, room, isManager, act, onClose, onEdit }) {
       footer={
         actions.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {actions.map(([label, patch, msg, tone]) => (
-              <button key={label} type="button" onClick={() => act(b, patch, msg)} className={`${BTN[tone]} ${tone === 'danger' ? 'bg-transparent text-tomato ring-1 ring-tomato/30 hover:bg-tomato/10' : ''}`}>
-                {label}
-              </button>
-            ))}
+            {actions.map(([label, patch, msg, tone]) =>
+              tone === 'danger' ? (
+                // Motionbook B7: cancelling frees the room, so it takes a deliberate hold, not a tap.
+                <HoldButton key={label} Icon={CircleX} doneLabel="Cancelled" className="sm:ml-auto" onConfirm={() => act(b, patch, msg)}>
+                  {label}
+                </HoldButton>
+              ) : (
+                <button key={label} type="button" onClick={() => act(b, patch, msg)} className={BTN[tone]}>
+                  {label}
+                </button>
+              ),
+            )}
           </div>
         )
       }

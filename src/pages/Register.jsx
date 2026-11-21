@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { CircleCheck, Loader2, Minus, NotebookPen, Plus, Search, ShoppingBag, Tag, UserRound, X } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { METHODS, METHOD, fmtDateTime, manilaMidnight, manilaToday, money, moneyInput, receiptNo, round2, uuid } from '../lib/util.js'
-import { Chips, CountUp, EASE_OUT, Problem } from '../components/ui.jsx'
+import { Chips, CountUp, EASE_OUT, PlaneOff, Problem } from '../components/ui.jsx'
 import { useAuth } from '../auth.jsx'
 
 // Stock wording, shared with Inventory. Always words, never colour alone.
@@ -445,10 +445,26 @@ function Cart({ lines, count, subtotal, total, method, setMethod, tendered, setT
 
         {error && <p role="alert" className="rounded-lg bg-tomato/25 px-3 py-2.5 text-sm font-semibold text-paper ring-1 ring-tomato/60">{error}</p>}
 
-        <button type="button" onClick={charge} disabled={!canCharge} className="press flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-tiffany text-lg font-extrabold text-roast hover:bg-[#95e0d9] disabled:opacity-35">
-          {busy && <Loader2 className="size-5 animate-spin" aria-hidden="true" />}
-          {busy ? 'Recording' : lines.length ? `Charge ${money(total)}` : 'Charge'}
-        </button>
+        {/* Motionbook B5 Load and Success (Clean): the pill shrinks to a circle with a spinner while
+            the sale records; the paper plane on the receipt is the success. */}
+        <div className="flex h-14 justify-center">
+          <motion.button
+            type="button"
+            layout
+            onClick={charge}
+            disabled={!canCharge}
+            aria-busy={busy}
+            transition={{ type: 'spring', duration: 0.28, bounce: 0 }}
+            style={{ borderRadius: busy ? 28 : 12 }}
+            className={`press flex h-14 items-center justify-center gap-2 bg-tiffany text-lg font-extrabold text-roast hover:bg-[#95e0d9] disabled:opacity-35 ${busy ? 'w-14 disabled:opacity-100' : 'w-full'}`}
+          >
+            {busy ? (
+              <Loader2 className="size-6 animate-spin" aria-label="Recording the sale" />
+            ) : (
+              <motion.span layout="position">{lines.length ? `Charge ${money(total)}` : 'Charge'}</motion.span>
+            )}
+          </motion.button>
+        </div>
         {refMissing && lines.length > 0 && <p className="-mt-2 text-center text-xs text-foam">Enter the GCash reference to charge.</p>}
       </div>
     </>
@@ -474,13 +490,16 @@ function Receipt({ sale, cashier, onDone }) {
         exit={{ opacity: 0, transform: 'scale(0.98)', transition: { duration: 0.12 } }}
         transition={{ type: 'spring', duration: 0.4, bounce: 0 }}
       >
-        <div className="flex items-center gap-3">
+        <div className="-mt-2 -mb-3 flex justify-center">
+          <PlaneOff />
+        </div>
+        <motion.div className="flex items-center gap-3" initial={{ opacity: 0, transform: 'scale(0.9)' }} animate={{ opacity: 1, transform: 'scale(1)' }} transition={{ delay: 0.45, type: 'spring', duration: 0.35, bounce: 0.2 }}>
           <CircleCheck className="size-8 text-leaf" aria-hidden="true" />
           <div>
             <h2 id="receipt-title" className="text-lg font-bold">Paid · {receiptNo(sale.sale_no)}</h2>
             <p className="text-sm text-bean">{fmtDateTime(sale.sold_at)}{cashier ? ` · ${cashier}` : ''}</p>
           </div>
-        </div>
+        </motion.div>
         <ul className="tabular mt-5 space-y-1.5 border-t border-dashed border-parchment pt-4 text-sm">
           {sale.sale_items.map((i, k) => (
             <li key={k} className="flex justify-between gap-3">

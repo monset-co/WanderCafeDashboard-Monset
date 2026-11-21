@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { AnimatePresence, animate, motion, useMotionValue, useMotionValueEvent } from 'motion/react'
-import { CircleAlert, CircleCheck, Loader2, X } from 'lucide-react'
+import { AnimatePresence, animate, motion, useMotionValue, useMotionValueEvent, useReducedMotion } from 'motion/react'
+import { Check, CircleAlert, CircleCheck, Loader2, X } from 'lucide-react'
 import { addDays, fmtDay, manilaToday, monthStart } from '../lib/util.js'
 
 export const EASE_OUT = [0.23, 1, 0.32, 1]
@@ -175,6 +175,98 @@ export function Badge({ tone = 'muted', Icon, children }) {
       {Icon && <Icon className="size-3.5" aria-hidden="true" />}
       {children}
     </span>
+  )
+}
+
+// ---- Motionbook B7 Hold to Confirm (Tactile), as a pill: a fill sweeps across while held (1.2s,
+// linear: the user is deciding); letting go early drains it fast (200ms ease-out). Space/Enter hold too.
+export function HoldButton({ onConfirm, Icon, children, doneLabel = 'Done', ms = 1200, className = '' }) {
+  const [holding, setHolding] = useState(false)
+  const [done, setDone] = useState(false)
+  const timer = useRef()
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const start = () => {
+    if (done) return
+    setHolding(true)
+    timer.current = setTimeout(() => {
+      setHolding(false)
+      setDone(true)
+      navigator.vibrate?.(20)
+      onConfirm()
+    }, ms)
+  }
+  const stop = () => (clearTimeout(timer.current), setHolding(false))
+  const key = (e) => (e.key === ' ' || e.key === 'Enter') && (e.preventDefault(), e.type === 'keydown' ? !e.repeat && start() : stop())
+  return (
+    <button
+      type="button"
+      onPointerDown={start}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      onKeyDown={key}
+      onKeyUp={key}
+      onContextMenu={(e) => e.preventDefault()}
+      aria-label={`Hold to ${String(children).toLowerCase()}`}
+      className={`press relative inline-flex h-11 touch-none items-center justify-center overflow-hidden rounded-lg px-4 font-semibold text-tomato ring-1 ring-tomato/35 select-none ${className}`}
+    >
+      <span
+        aria-hidden="true"
+        className="absolute inset-0 bg-tomato"
+        style={{ clipPath: holding || done ? 'inset(0 0 0 0)' : 'inset(0 100% 0 0)', transition: `clip-path ${holding ? `${ms}ms linear` : '200ms var(--ease-out)'}` }}
+      />
+      <span className={`relative flex items-center gap-2 transition-colors duration-150 ${holding || done ? 'text-paper' : ''}`} aria-live="polite">
+        {done ? <Check className="size-4" aria-hidden="true" /> : Icon && <Icon className="size-4" aria-hidden="true" />}
+        {done ? doneLabel : holding ? 'Keep holding…' : children}
+      </span>
+    </button>
+  )
+}
+
+// ---- Motionbook D4 Paper Plane (Tactile): Wander's paper plane pulls back, then flies off along a
+// dashed trail. Decorative only: the heading next to it says what happened. Skipped for reduced motion.
+const FLIGHT = { duration: 1.05, times: [0, 0.18, 0.38, 0.58, 0.8, 1], ease: 'easeInOut' }
+export function PlaneOff() {
+  const reduce = useReducedMotion()
+  if (reduce) return null
+  return (
+    <div className="pointer-events-none relative h-16 w-[240px]" aria-hidden="true">
+      <svg viewBox="0 0 240 64" width="240" height="64" className="absolute inset-0 overflow-visible">
+        <defs>
+          <clipPath id="plane-trail">
+            <motion.rect x="0" y="-20" height="100" initial={{ width: 0 }} animate={{ width: 240 }} transition={{ delay: 0.19, duration: 0.86, ease: [0.65, 0, 0.35, 1] }} />
+          </clipPath>
+        </defs>
+        <motion.path
+          d="M20 48 C 80 56, 140 40, 230 6"
+          fill="none"
+          stroke="var(--color-teal)"
+          strokeWidth="2"
+          strokeDasharray="3 7"
+          strokeLinecap="round"
+          clipPath="url(#plane-trail)"
+          initial={{ opacity: 0.85 }}
+          animate={{ opacity: 0 }}
+          transition={{ delay: 1, duration: 0.5 }}
+        />
+      </svg>
+      <motion.svg
+        viewBox="-22 -10 24 20"
+        width="26"
+        height="22"
+        className="absolute"
+        style={{ left: 8, top: 37 }}
+        initial={{ transform: 'translate(0px,0px) rotate(8deg)', opacity: 1 }}
+        animate={{
+          transform: ['translate(0px,0px) rotate(8deg)', 'translate(-10px,2px) rotate(10deg)', 'translate(45px,2px) rotate(4deg)', 'translate(94px,-5px) rotate(-10deg)', 'translate(148px,-20px) rotate(-22deg)', 'translate(214px,-44px) rotate(-30deg)'],
+          opacity: [1, 1, 1, 1, 1, 0],
+        }}
+        transition={FLIGHT}
+      >
+        <path d="M0 0L-20-8-13 1Z" fill="var(--color-teal-deep)" />
+        <path d="M0 0-13 1-16 9Z" fill="var(--color-teal)" />
+      </motion.svg>
+    </div>
   )
 }
 
