@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+/* Short laptop screens (often 125% scaling): ~600-720px tall. */
+@custom-variant short (@media (max-height: 720px));
+
+/* Wander brand card, tuned for a working screen used all day in a bright cafe.
+   Cream is the room, paper is the counter, espresso is the bar the nav sits on. */
+@theme {
+  --color-cream: #f8f1e7;      /* page */
+  --color-paper: #fffcf7;      /* raised surfaces */
+  --color-parchment: #e8d8c3;  /* second neutral: borders, wells, hover */
+  --color-espresso: #4a3428;   /* text */
+  --color-roast: #33241c;      /* nav bar */
+  --color-roast-2: #46342a;    /* raised on roast */
+  --color-bean: #77614f;       /* secondary text on cream/paper (4.6:1) */
+  --color-foam: #d9c9b6;       /* secondary text on roast (8:1) */
+  --color-tiffany: #81d8d0;    /* selection, focus, active nav */
+  --color-teal: #4f8f8a;       /* brand accent, charts */
+  --color-teal-deep: #2f625e;  /* primary actions, links (6.3:1 on cream) */
+  --color-tomato: #b3412e;     /* destructive, voids, errors */
+  --color-honey: #8a5a0c;      /* warnings: low stock, awaiting payment */
+  --color-leaf: #2f6f45;       /* success */
+
+  --font-display: "Fraunces Variable", Georgia, serif;
+  --font-sans: "Mulish Variable", system-ui, sans-serif;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+html {
+  background: var(--color-cream);
+  color: var(--color-espresso);
+  color-scheme: light;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  caret-color: var(--color-teal-deep);
+}
+
+::selection {
+  background: var(--color-tiffany);
+  color: var(--color-espresso);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-teal-deep);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-parchment) transparent;
+}
+
+/* Numbers that line up in columns and don't jitter while they count. */
+.tabular {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Press feedback for anything tappable. */
+.press {
+  transition: transform 140ms var(--ease-out), background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+.press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* The Tiffany brush stroke from the printed menus, behind the active nav item. */
+.brush {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 40' preserveAspectRatio='none'%3E%3Cpath fill='%2381d8d0' d='M3 9 L12 5 L40 7 L70 3 L110 6 L150 2 L186 5 L197 3 L194 12 L199 20 L193 28 L197 35 L160 36 L120 39 L80 35 L40 38 L10 35 L1 37 L5 28 L0 20 L4 14 Z'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+}
+
+/* Money fields are text, not type=number (a mouse wheel would change the amount). */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+/* Native date inputs pick up the palette. */
+input[type='date']::-webkit-calendar-picker-indicator {
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+.fade-in {
+  animation: fade-in 180ms var(--ease-out);
+}
+
+/* Phone/tablet cart sheet slides up on the drawer curve. */
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+}
+@media (max-width: 63.99rem) {
+  .sheet-in {
+    animation: sheet-in 360ms var(--ease-drawer);
+  }
+}
+
+@keyframes pulse-soft {
+  50% { opacity: 0.55; }
+}
+.skeleton {
+  background: var(--color-parchment);
+  animation: pulse-soft 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-in { animation: fade-in 150ms ease; }
+  .skeleton { animation: none; opacity: 0.7; }
+  .press:active:not(:disabled) { transform: none; }
+}
