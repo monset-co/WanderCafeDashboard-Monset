@@ -189,6 +189,23 @@ create table if not exists public.sales (
   created_at       timestamptz not null default now()
 );
 
+-- How the order leaves the counter, and where the kitchen is with it. Orders with anything made to
+-- order start 'preparing'; bottled goods only are 'completed' at once. Older sales count as completed.
+alter table public.sales add column if not exists order_type   text not null default 'dine_in';
+alter table public.sales add column if not exists order_status text not null default 'completed';
+alter table public.sales add column if not exists completed_at timestamptz;
+alter table public.sales add column if not exists completed_by uuid references auth.users(id);
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'sales_order_type_check') then
+    alter table public.sales add constraint sales_order_type_check check (order_type in ('dine_in', 'take_out', 'delivery'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'sales_order_status_check') then
+    alter table public.sales add constraint sales_order_status_check check (order_status in ('preparing', 'completed'));
+  end if;
+end $$;
+create index if not exists sales_open_orders_idx on public.sales (order_status, sold_at);
+
 create table if not exists public.sale_items (
   id            uuid primary key default gen_random_uuid(),
   sale_id       uuid not null references public.sales(id) on delete cascade,
@@ -254,6 +271,8 @@ create index if not exists stock_movements_prod_idx on public.stock_movements (p
 
 -- The Charge button. All or nothing. Prices come from products, never from the browser.
 -- p_items: [{"product_id": "uuid", "qty": 2}, ...]
+-- p_order_type: dine_in | take_out | delivery
+drop function if exists public.record_sale(jsonb, text, numeric, numeric, text, text, uuid, text);
 create or replace function public.record_sale(
   p_items            jsonb,
   p_payment_method   text    default 'cash',
@@ -262,7 +281,8 @@ create or replace function public.record_sale(
   p_customer_name    text    default null,
   p_note             text    default null,
   p_client_ref       uuid    default null,
-  p_payment_ref      text    default null
+  p_payment_ref      text    default null,
+  p_order_type       text    default 'dine_in'
 )
 returns uuid
 language plpgsql security definer set search_path = public as $$
@@ -274,6 +294,7 @@ declare
   v_subtotal  numeric := 0;
   v_discount  numeric := coalesce(p_discount, 0);
   v_total     numeric;
+  v_made      boolean := false;  -- anything for the kitchen to prepare?
 begin
   if not public.is_staff() then
     raise exception 'Not authorized';
@@ -297,9 +318,13 @@ begin
     raise exception 'Discount cannot be negative';
   end if;
 
-  insert into public.sales (payment_method, payment_ref, discount, customer_name, note, staff_id, client_ref)
+  if coalesce(p_order_type, '') not in ('dine_in', 'take_out', 'delivery') then
+    raise exception 'Pick dine-in, take-out or delivery';
+  end if;
+
+  insert into public.sales (payment_method, payment_ref, discount, customer_name, note, staff_id, client_ref, order_type, order_status)
   values (p_payment_method, case when p_payment_method = 'gcash' then p_payment_ref end, v_discount,
-          nullif(trim(p_customer_name), ''), nullif(trim(p_note), ''), auth.uid(), p_client_ref)
+          nullif(trim(p_customer_name), ''), nullif(trim(p_note), ''), auth.uid(), p_client_ref, p_order_type, 'preparing')
   returning id into v_sale_id;
 
   for v_item in select * from jsonb_array_elements(p_items) loop
@@ -330,6 +355,7 @@ begin
     end if;
 
     v_subtotal := v_subtotal + v_qty * v_product.selling_price;
+    v_made := v_made or v_product.kind = 'made';
   end loop;
 
   if v_discount > v_subtotal then
@@ -344,7 +370,9 @@ begin
      set subtotal = v_subtotal,
          total = v_total,
          amount_tendered = p_amount_tendered,
-         change_due = case when p_amount_tendered is not null then p_amount_tendered - v_total end
+         change_due = case when p_amount_tendered is not null then p_amount_tendered - v_total end,
+         order_status = case when v_made then 'preparing' else 'completed' end,
+         completed_at = case when v_made then null else now() end
    where id = v_sale_id;
   return v_sale_id;
 end $$;
@@ -650,7 +678,8 @@ select
   s.payment_method, s.subtotal, s.discount, s.total, s.status, s.staff_id,
   coalesce(sum(si.line_cost), 0)           as cost,
   s.total - coalesce(sum(si.line_cost), 0) as gross_profit,
-  coalesce(sum(si.qty), 0)                 as items_count
+  coalesce(sum(si.qty), 0)                 as items_count,
+  s.order_type
 from public.sales s
 left join public.sale_items si on si.sale_id = s.id
 group by s.id;
@@ -706,6 +735,9 @@ begin
     'payments', (
       select coalesce(jsonb_agg(jsonb_build_object('method', payment_method, 'total', t, 'receipts', n) order by t desc), '[]'::jsonb)
         from (select payment_method, sum(total) as t, count(*) as n from done group by payment_method) q),
+    'types', (
+      select coalesce(jsonb_agg(jsonb_build_object('type', order_type, 'total', t, 'receipts', n) order by t desc), '[]'::jsonb)
+        from (select order_type, sum(total) as t, count(*) as n from done group by order_type) q),
     'hours', (
       select coalesce(jsonb_agg(jsonb_build_object('dow', dow, 'hour', hr, 'receipts', n, 'revenue', r)), '[]'::jsonb)
         from (select extract(dow from sold_at_local)::int as dow, extract(hour from sold_at_local)::int as hr, count(*) as n, sum(total) as r
@@ -816,20 +848,108 @@ begin
   );
 end $$;
 
-revoke all on function public.record_sale(jsonb, text, numeric, numeric, text, text, uuid, text) from public, anon;
+revoke all on function public.record_sale(jsonb, text, numeric, numeric, text, text, uuid, text, text) from public, anon;
 revoke all on function public.void_sale(uuid, text) from public, anon;
 revoke all on function public.set_stock_count(uuid, numeric, text) from public, anon;
 revoke all on function public.sales_report(date, date) from public, anon;
 revoke all on function public.stock_report(date, date) from public, anon;
 revoke all on function public.bookings_report(date, date) from public, anon;
 revoke all on function public.staff_list() from public, anon;
-grant execute on function public.record_sale(jsonb, text, numeric, numeric, text, text, uuid, text) to authenticated;
+grant execute on function public.record_sale(jsonb, text, numeric, numeric, text, text, uuid, text, text) to authenticated;
 grant execute on function public.void_sale(uuid, text) to authenticated;
 grant execute on function public.set_stock_count(uuid, numeric, text) to authenticated;
 grant execute on function public.sales_report(date, date) to authenticated;
 grant execute on function public.stock_report(date, date) to authenticated;
 grant execute on function public.bookings_report(date, date) to authenticated;
 grant execute on function public.staff_list() to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 8b. ORDER BOARD. Everyone on shift sees every open order (staff can't
+-- read each other's receipts, so this hands out only what the kitchen
+-- needs: no money). Voided sales drop off the board.
+-- ---------------------------------------------------------------------
+create or replace function public.order_board()
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_staff() then
+    raise exception 'Not authorized';
+  end if;
+  return (
+    select coalesce(jsonb_agg(o order by o.sold_at), '[]'::jsonb) from (
+      select s.id, s.sale_no, s.sold_at, s.order_type, s.order_status, s.completed_at, s.customer_name, s.note,
+             coalesce(pf.full_name, 'Unknown') as staff_name,
+             (select coalesce(jsonb_agg(jsonb_build_object('name', si.product_name, 'qty', si.qty) order by si.product_name), '[]'::jsonb)
+                from public.sale_items si where si.sale_id = s.id) as items
+        from public.sales s
+        left join public.profiles pf on pf.id = s.staff_id
+       where s.status = 'completed'
+         and (s.order_status = 'preparing'
+              or (s.completed_at at time zone 'Asia/Manila')::date = (now() at time zone 'Asia/Manila')::date)
+       order by s.sold_at desc
+       limit 120
+    ) o
+  );
+end $$;
+
+-- Preparing → completed, or back again (undo). Anyone on shift.
+create or replace function public.set_order_status(p_sale_id uuid, p_status text)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_staff() then
+    raise exception 'Not authorized';
+  end if;
+  if p_status not in ('preparing', 'completed') then
+    raise exception 'Unknown order status';
+  end if;
+  update public.sales
+     set order_status = p_status,
+         completed_at = case when p_status = 'completed' then now() end,
+         completed_by = case when p_status = 'completed' then auth.uid() end
+   where id = p_sale_id and status = 'completed';
+  if not found then
+    raise exception 'That order was voided or no longer exists';
+  end if;
+end $$;
+
+revoke all on function public.order_board() from public, anon;
+revoke all on function public.set_order_status(uuid, text) from public, anon;
+grant execute on function public.order_board() to authenticated;
+grant execute on function public.set_order_status(uuid, text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 8c. STAFF SCHEDULE. Everyone sees the roster; managers make it.
+-- One person can't be on two overlapping shifts.
+-- ---------------------------------------------------------------------
+create table if not exists public.shifts (
+  id          uuid primary key default gen_random_uuid(),
+  staff_id    uuid not null references public.profiles(id) on delete cascade,
+  shift_date  date not null,
+  start_time  time not null,
+  end_time    time not null,
+  station     text not null default 'Counter' check (length(trim(station)) between 1 and 40),
+  note        text not null default '' check (length(note) <= 300),
+  created_by  uuid references auth.users(id) default auth.uid(),
+  created_at  timestamptz not null default now(),
+  constraint shifts_times check (end_time > start_time),
+  constraint shifts_no_overlap exclude using gist (
+    staff_id with =,
+    tsrange(shift_date + start_time, shift_date + end_time) with &&
+  )
+);
+create index if not exists shifts_date_idx on public.shifts (shift_date);
+
+alter table public.shifts enable row level security;
+drop policy if exists "shifts read" on public.shifts;
+drop policy if exists "shifts insert" on public.shifts;
+drop policy if exists "shifts update" on public.shifts;
+drop policy if exists "shifts delete" on public.shifts;
+create policy "shifts read" on public.shifts for select to authenticated using (public.is_staff());
+create policy "shifts insert" on public.shifts for insert to authenticated with check (public.is_manager());
+create policy "shifts update" on public.shifts for update to authenticated using (public.is_manager()) with check (public.is_manager());
+create policy "shifts delete" on public.shifts for delete to authenticated using (public.is_manager());
+grant select, insert, update, delete on public.shifts to authenticated;
 
 -- ---------------------------------------------------------------------
 -- 9. API ACCESS. New Supabase projects don't expose tables to the API
@@ -852,7 +972,7 @@ do $$
 declare t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['sales', 'bookings'] loop
+    foreach t in array array['sales', 'bookings', 'shifts'] loop
       if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
         execute format('alter publication supabase_realtime add table public.%I', t);
       end if;

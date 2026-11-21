@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { CircleCheck, Loader2, Minus, NotebookPen, Plus, Search, ShoppingBag, Tag, UserRound, X } from 'lucide-react'
+import { Bike, CircleCheck, Loader2, Minus, NotebookPen, Plus, Search, ShoppingBag, Tag, UserRound, UtensilsCrossed, X } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
-import { METHODS, METHOD, fmtDateTime, manilaMidnight, manilaToday, money, moneyInput, receiptNo, round2, uuid } from '../lib/util.js'
+import { METHODS, METHOD, ORDER_TYPE, ORDER_TYPES, fmtDateTime, manilaMidnight, manilaToday, money, moneyInput, receiptNo, round2, uuid } from '../lib/util.js'
 import { Chips, CountUp, EASE_OUT, PlaneOff, Problem } from '../components/ui.jsx'
 import { useAuth } from '../auth.jsx'
 
@@ -29,6 +29,7 @@ export default function Register() {
   const [gcashRef, setGcashRef] = useState('')
   const [discount, setDiscount] = useState('')
   const [customer, setCustomer] = useState('')
+  const [orderType, setOrderType] = useState('dine_in')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -84,7 +85,8 @@ export default function Register() {
   const paid = method === 'cash' ? (tendered === '' ? total : Number(tendered)) : null // blank = exact amount
   const change = paid == null ? null : round2(paid - total)
   const refMissing = method === 'gcash' && !/^\d{4}$/.test(gcashRef)
-  const canCharge = lines.length > 0 && !busy && !discTooBig && !refMissing && (change == null || change >= 0)
+  const needsAddress = orderType === 'delivery' && !customer.trim()
+  const canCharge = lines.length > 0 && !busy && !discTooBig && !refMissing && !needsAddress && (change == null || change >= 0)
 
   const maxQty = (p) => (p.kind === 'good' ? Math.floor(p.stock_qty) : Infinity)
   const add = (p) => {
@@ -116,6 +118,7 @@ export default function Register() {
     setCustomer('')
     setNote('')
     setMethod('cash')
+    setOrderType('dine_in')
     setSheet(false)
   }
 
@@ -132,6 +135,7 @@ export default function Register() {
       p_note: note.trim() || null,
       p_client_ref: clientRef.current,
       p_payment_ref: method === 'gcash' ? gcashRef : null,
+      p_order_type: orderType,
     })
     if (error) {
       setBusy(false)
@@ -141,13 +145,13 @@ export default function Register() {
     }
     const { data: sale } = await supabase
       .from('sales')
-      .select('sale_no, sold_at, subtotal, discount, total, note, amount_tendered, change_due, payment_method, payment_ref, customer_name, sale_items(product_name, qty, line_total)')
+      .select('sale_no, sold_at, order_type, subtotal, discount, total, note, amount_tendered, change_due, payment_method, payment_ref, customer_name, sale_items(product_name, qty, line_total)')
       .eq('id', id)
       .single()
     // The sale is saved either way; fall back to what the register knows if the read-back failed.
     setReceipt(
       sale ?? {
-        sale_no: null, sold_at: new Date().toISOString(), subtotal, discount: disc, total, note: note.trim() || null,
+        sale_no: null, sold_at: new Date().toISOString(), order_type: orderType, subtotal, discount: disc, total, note: note.trim() || null,
         amount_tendered: paid, change_due: change, payment_method: method, payment_ref: method === 'gcash' ? gcashRef : null,
         customer_name: customer.trim() || null, sale_items: lines.map((l) => ({ product_name: l.name, qty: l.qty, line_total: l.qty * l.selling_price })),
       },
@@ -222,7 +226,7 @@ export default function Register() {
 
         <aside aria-label="Current order" className={`bg-roast text-paper lg:flex lg:min-h-0 lg:flex-col lg:overflow-y-auto ${sheet ? 'sheet-in fixed inset-0 z-40 flex flex-col overflow-y-auto' : 'max-lg:hidden'}`}>
           <Cart
-            {...{ lines, count, subtotal, total, method, setMethod, tendered, setTendered, gcashRef, setGcashRef, refMissing, discount, setDiscount, discTooBig, customer, setCustomer, note, setNote, change, busy, error, canCharge, charge, setQty }}
+            {...{ lines, count, subtotal, total, orderType, setOrderType, needsAddress, method, setMethod, tendered, setTendered, gcashRef, setGcashRef, refMissing, discount, setDiscount, discTooBig, customer, setCustomer, note, setNote, change, busy, error, canCharge, charge, setQty }}
             onClear={() => setCart([])}
             onClose={() => setSheet(false)}
           />
@@ -302,15 +306,17 @@ function ProductTile({ p, inCart, onAdd }) {
   )
 }
 
+export const TYPE_ICON = { dine_in: UtensilsCrossed, take_out: ShoppingBag, delivery: Bike }
 const darkField = 'h-11 w-full rounded-lg bg-roast-2 px-3 text-paper ring-1 ring-paper/10 outline-none transition-shadow duration-150 placeholder:text-foam/60 focus:ring-2 focus:ring-tiffany'
 const chip = 'press flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-semibold ring-1 ring-paper/15 text-foam hover:text-paper'
 
-function Cart({ lines, count, subtotal, total, method, setMethod, tendered, setTendered, gcashRef, setGcashRef, refMissing, discount, setDiscount, discTooBig, customer, setCustomer, note, setNote, change, busy, error, canCharge, charge, setQty, onClear, onClose }) {
+function Cart({ lines, count, subtotal, total, orderType, setOrderType, needsAddress, method, setMethod, tendered, setTendered, gcashRef, setGcashRef, refMissing, discount, setDiscount, discTooBig, customer, setCustomer, note, setNote, change, busy, error, canCharge, charge, setQty, onClear, onClose }) {
   const [open, setOpen] = useState({}) // which optional fields are showing
   const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }))
   useEffect(() => {
     if (!lines.length && !discount && !customer && !note) setOpen({})
   }, [lines.length, discount, customer, note])
+  const who = ORDER_TYPES.find((t) => t[0] === orderType)
   const quick = [...new Set([100, 200, 500, 1000].map((b) => Math.ceil(total / b) * b))].filter((v) => v > total).slice(0, 3)
 
   return (
@@ -364,9 +370,22 @@ function Cart({ lines, count, subtotal, total, method, setMethod, tendered, setT
       </ul>
 
       <div className="shrink-0 space-y-4 border-t border-paper/10 px-5 pt-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] short:space-y-2.5 short:pt-2.5">
+        {/* Motionbook C4 Radio Slide: one pill slides between the three ways an order leaves. */}
+        <div role="radiogroup" aria-label="Order type" className="grid grid-cols-3 gap-1 rounded-xl bg-roast-2 p-1 ring-1 ring-paper/10">
+          {ORDER_TYPES.map(([v, label]) => {
+            const Icon = TYPE_ICON[v]
+            return (
+              <button key={v} type="button" role="radio" aria-checked={orderType === v} onClick={() => setOrderType(v)} className={`press relative flex h-10 items-center justify-center gap-1.5 rounded-lg text-sm font-bold ${orderType === v ? 'text-roast' : 'text-foam hover:text-paper'}`}>
+                {orderType === v && <motion.span layoutId="type-pill" className="absolute inset-0 rounded-lg bg-paper" transition={{ type: 'spring', duration: 0.3, bounce: 0 }} />}
+                <Icon className="relative size-4" aria-hidden="true" />
+                <span className="relative">{label}</span>
+              </button>
+            )
+          })}
+        </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => toggle('customer')} aria-expanded={!!open.customer || !!customer} className={chip}>
-            <UserRound className="size-4" aria-hidden="true" /> {customer ? customer : 'Name / table'}
+            <UserRound className="size-4" aria-hidden="true" /> <span className="max-w-40 truncate">{customer ? customer : who[2]}</span>
           </button>
           <button type="button" onClick={() => toggle('note')} aria-expanded={!!open.note || !!note} className={chip}>
             <NotebookPen className="size-4" aria-hidden="true" /> {note ? 'Note added' : 'Kitchen note'}
@@ -375,10 +394,10 @@ function Cart({ lines, count, subtotal, total, method, setMethod, tendered, setT
             <Tag className="size-4" aria-hidden="true" /> {discount ? `−${money(discount)}` : 'Discount'}
           </button>
         </div>
-        {(open.customer || customer) && (
+        {(open.customer || customer || orderType === 'delivery') && (
           <label className="block">
-            <span className="sr-only">Customer name or table</span>
-            <input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="Name or table, e.g. Table 4" className={darkField} />
+            <span className="sr-only">{who[2]}</span>
+            <input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder={who[3]} className={darkField} />
           </label>
         )}
         {(open.note || note) && (
@@ -467,7 +486,7 @@ function Cart({ lines, count, subtotal, total, method, setMethod, tendered, setT
             )}
           </motion.button>
         </div>
-        {refMissing && lines.length > 0 && <p className="-mt-2 text-center text-xs text-foam">Enter the GCash reference to charge.</p>}
+        {lines.length > 0 && (refMissing || needsAddress) && <p className="-mt-2 text-center text-xs text-foam">{needsAddress ? 'Add the name and address for delivery.' : 'Enter the GCash reference to charge.'}</p>}
       </div>
     </>
   )
@@ -498,7 +517,7 @@ function Receipt({ sale, cashier, onDone }) {
         <motion.div className="flex items-center gap-3" initial={{ opacity: 0, transform: 'scale(0.9)' }} animate={{ opacity: 1, transform: 'scale(1)' }} transition={{ delay: 0.45, type: 'spring', duration: 0.35, bounce: 0.2 }}>
           <CircleCheck className="size-8 text-leaf" aria-hidden="true" />
           <div>
-            <h2 id="receipt-title" className="text-lg font-bold">Paid · {receiptNo(sale.sale_no)}</h2>
+            <h2 id="receipt-title" className="text-lg font-bold">Paid · {receiptNo(sale.sale_no)} · {ORDER_TYPE[sale.order_type] ?? 'Dine-in'}</h2>
             <p className="text-sm text-bean">{fmtDateTime(sale.sold_at)}{cashier ? ` · ${cashier}` : ''}</p>
           </div>
         </motion.div>
@@ -517,7 +536,7 @@ function Receipt({ sale, cashier, onDone }) {
           {sale.amount_tendered != null && (
             <div className="flex justify-between text-lg font-bold text-teal-deep"><dt>Change</dt><dd>{money(sale.change_due ?? 0)}</dd></div>
           )}
-          {sale.customer_name && <div className="flex justify-between text-bean"><dt>For</dt><dd>{sale.customer_name}</dd></div>}
+          {sale.customer_name && <div className="flex justify-between gap-4 text-bean"><dt>For</dt><dd className="text-right">{sale.customer_name}</dd></div>}
           {sale.note && <div className="flex justify-between gap-4 text-bean"><dt>Note</dt><dd className="text-right">{sale.note}</dd></div>}
         </dl>
         <button type="button" autoFocus onClick={onDone} className="press mt-6 h-12 w-full rounded-xl bg-teal-deep font-bold text-paper hover:bg-[#264f4c]">

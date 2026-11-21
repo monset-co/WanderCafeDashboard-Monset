@@ -130,6 +130,40 @@ assert.equal(br.nights_sold, 7); assert.equal(br.nights_available, 62); assert.e
 assert.equal(+br.revenue, 360000 + 360000 + 360000 + 360000); ok('bookings report: 7 of 62 nights, ₱14,400 room revenue, 1 cancellation')
 await fails(S, `select bookings_report('2030-01-01', '2030-01-31')`, /Only a manager/); ok('staff cannot open the rooms report')
 
+// ---- order board ----
+const ord = (uid, items, type) => as(uid, `select record_sale($1::jsonb, 'cash', 0, null, 'Table 4', 'no ice', null, null, $2) as id`, [JSON.stringify(items), type]).then((r) => r[0].id)
+const o1 = await ord(M, [{ product_id: latte, qty: 1 }], 'take_out')
+const o2 = await ord(M, [{ product_id: water, qty: 1 }], 'delivery')
+const s1o = await one(`select order_type, order_status, completed_at from sales where id = '${o1}'`)
+assert.deepEqual([s1o.order_type, s1o.order_status, s1o.completed_at], ['take_out', 'preparing', null]); ok('a latte to take out starts preparing')
+assert.equal((await one(`select order_status from sales where id = '${o2}'`)).order_status, 'completed'); ok('bottled goods only: completed straight away')
+await fails(M, `select record_sale($1::jsonb, 'cash', 0, null, null, null, null, null, 'drive_thru')`, /dine-in, take-out or delivery/, [JSON.stringify([{ product_id: latte, qty: 1 }])]); ok('unknown order type refused')
+const board = (await as(S, 'select order_board() as b'))[0].b
+const mine = board.find((o) => o.id === o1)
+assert.ok(mine && !('total' in mine)); assert.deepEqual(mine.items, [{ name: 'Latte', qty: 1 }]); assert.equal(mine.note, 'no ice')
+ok("staff see the manager's order on the board: items and note, no money")
+await as(S, `select set_order_status($1, 'completed')`, [o1])
+const done1 = await one(`select order_status, completed_by from sales where id = '${o1}'`)
+assert.deepEqual([done1.order_status, done1.completed_by], ['completed', S]); ok('staff mark it completed, signed by them')
+await as(S, `select set_order_status($1, 'preparing')`, [o1])
+assert.equal((await one(`select completed_at from sales where id = '${o1}'`)).completed_at, null); ok('undo puts it back to preparing')
+await as(M, `select void_sale($1, 'Customer left')`, [o1])
+assert.ok(!(await as(S, 'select order_board() as b'))[0].b.some((o) => o.id === o1)); ok('a voided order leaves the board')
+await fails(S, `select set_order_status($1, 'completed')`, /voided/, [o1]); ok('voided orders cannot be completed')
+await fails(X, 'select order_board()', /Not authorized/); ok('inactive users see no orders')
+const types = (await as(M, `select sales_report(${today}, ${today}) as r`))[0].r.types
+assert.ok(types.some((t) => t.type === 'delivery')); ok('the sales report splits by dine-in / take-out / delivery')
+
+// ---- schedule ----
+await as(M, `insert into shifts (staff_id, shift_date, start_time, end_time, station) values ($1, '2030-02-02', '07:00', '15:00', 'Counter')`, [S])
+await fails(M, `insert into shifts (staff_id, shift_date, start_time, end_time) values ($1, '2030-02-02', '14:00', '20:00')`, /shifts_no_overlap/, [S]); ok('overlapping shifts for one person refused')
+await as(M, `insert into shifts (staff_id, shift_date, start_time, end_time) values ($1, '2030-02-02', '15:00', '20:00')`, [S]); ok('back-to-back shifts are fine')
+await fails(M, `insert into shifts (staff_id, shift_date, start_time, end_time) values ($1, '2030-02-03', '15:00', '09:00')`, /shifts_times/, [S]); ok('a shift must end after it starts')
+await fails(S, `insert into shifts (staff_id, shift_date, start_time, end_time) values ($1, '2030-02-04', '07:00', '15:00')`, /row-level security/, [S]); ok('staff cannot write the schedule')
+assert.equal((await as(S, `select * from shifts where shift_date = '2030-02-02'`)).length, 2); ok('staff can read the whole schedule')
+await as(M, `delete from shifts where shift_date = '2030-02-02' and start_time = '15:00'`)
+assert.equal((await one(`select count(*)::int c from shifts`)).c, 1); ok('managers remove shifts')
+
 // ---- a project where the website's schema ran first (WanderCafe-monset/supabase/schema.sql) ----
 const web = new PGlite({ extensions: { btree_gist } })
 await web.exec(`

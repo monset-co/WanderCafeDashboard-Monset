@@ -1,13 +1,16 @@
 import { Component, lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router'
 import { MotionConfig, motion } from 'motion/react'
-import { BarChart3, BedDouble, Boxes, LogOut, ReceiptText, ShoppingBag, UsersRound } from 'lucide-react'
+import { BarChart3, BedDouble, Boxes, CalendarClock, ChefHat, LayoutDashboard, LogOut, ReceiptText, ShoppingBag, UsersRound } from 'lucide-react'
 import { configured } from './lib/supabase.js'
 import { AuthProvider, ROLE_LABEL, useAuth } from './auth.jsx'
 import { ToastProvider } from './components/ui.jsx'
 import Login, { NoAccess, Setup, Booting } from './pages/Login.jsx'
 import Register from './pages/Register.jsx'
 // Manager pages load on demand, so the counter tablet never downloads them.
+const Overview = lazy(() => import('./pages/Overview.jsx'))
+const Orders = lazy(() => import('./pages/Orders.jsx'))
+const Schedule = lazy(() => import('./pages/Schedule.jsx'))
 const Bookings = lazy(() => import('./pages/Bookings.jsx'))
 const Sales = lazy(() => import('./pages/Sales.jsx'))
 const Inventory = lazy(() => import('./pages/Inventory.jsx'))
@@ -16,12 +19,16 @@ const Staff = lazy(() => import('./pages/Staff.jsx'))
 
 const ALL = ['admin', 'manager', 'staff']
 // [label, path, icon, roles that see it]. The database enforces the same split.
+const MANAGERS = ['admin', 'manager']
 const NAV = [
-  ['Register', '/', ShoppingBag, ALL],
+  ['Overview', '/', LayoutDashboard, MANAGERS],
+  ['Orders', '/orders', ChefHat, ALL],
+  ['Register', '/register', ShoppingBag, ALL],
   ['Bookings', '/bookings', BedDouble, ALL],
   ['Sales', '/sales', ReceiptText, ALL],
   ['Inventory', '/inventory', Boxes, ALL],
-  ['Analytics', '/analytics', BarChart3, ['admin', 'manager']],
+  ['Schedule', '/schedule', CalendarClock, ALL],
+  ['Analytics', '/analytics', BarChart3, MANAGERS],
   ['Staff', '/staff', UsersRound, ['admin']],
 ]
 
@@ -89,7 +96,11 @@ function Shell() {
         <Crash>
         <Suspense fallback={null}>
           <Routes>
-            <Route path="/" element={<Register />} />
+            {/* Admins and managers start on the Overview; staff start on the order board. */}
+            <Route path="/" element={isManager ? <Overview /> : <Navigate to="/orders" replace />} />
+            <Route path="/orders" element={<Orders />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/schedule" element={<Schedule />} />
             <Route path="/bookings/*" element={<Bookings />} />
             <Route path="/sales" element={<Sales />} />
             <Route path="/inventory" element={<Inventory />} />

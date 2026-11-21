@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Ban, Loader2, Package, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
-import { METHOD, addDays, fmtDateTime, manilaMidnight, money, plural, receiptNo } from '../lib/util.js'
+import { METHOD, ORDER_TYPE, ORDER_TYPES, addDays, fmtDateTime, manilaMidnight, money, plural, receiptNo } from '../lib/util.js'
 import { BTN, Badge, CARD, EASE_OUT, Empty, FIELD, Kpis, LABEL, PageHeader, Problem, RangePicker, Sheet, SkeletonRows, Submit, presets } from '../components/ui.jsx'
 import { useAuth } from '../auth.jsx'
 
 const PAGE = 50
 const SELECT = 'h-11 rounded-lg bg-paper px-3 text-sm font-semibold ring-1 ring-parchment outline-none focus:ring-2 focus:ring-teal-deep disabled:opacity-50'
-const COLS = 'id, sale_no, sold_at, payment_method, payment_ref, subtotal, discount, total, amount_tendered, change_due, customer_name, note, status, voided_at, voided_by, void_reason, staff_id, sale_items(product_name, qty, unit_price, line_total)'
+const COLS = 'id, sale_no, sold_at, order_type, order_status, payment_method, payment_ref, subtotal, discount, total, amount_tendered, change_due, customer_name, note, status, voided_at, voided_by, void_reason, staff_id, sale_items(product_name, qty, unit_price, line_total)'
 
 export default function Sales() {
   const { isManager } = useAuth() // staff only ever receive their own receipts (sales read policy)
@@ -19,6 +19,7 @@ export default function Sales() {
   const [itemTyped, setItemTyped] = useState('')
   const [item, setItem] = useState('')
   const [method, setMethod] = useState('')
+  const [otype, setOtype] = useState('')
   const [status, setStatus] = useState('')
   const [staff, setStaff] = useState('')
   const [people, setPeople] = useState([])
@@ -55,12 +56,13 @@ export default function Sales() {
       q = q.gte('sold_at', manilaMidnight(range.from)).lt('sold_at', manilaMidnight(addDays(range.to, 1)))
       if (search) q = q.ilike('customer_name', `%${search}%`)
       if (method) q = q.eq('payment_method', method)
+      if (otype) q = q.eq('order_type', otype)
       if (status) q = q.eq('status', status)
       if (staff) q = q.eq('staff_id', staff)
       if (item) q = q.ilike('hit.product_name', `%${item}%`)
       return q
     },
-    [range.from, range.to, search, byReceipt, method, status, staff, item],
+    [range.from, range.to, search, byReceipt, method, otype, status, staff, item],
   )
 
   const reload = useCallback(async () => {
@@ -105,7 +107,7 @@ export default function Sales() {
   const names = Object.fromEntries(people.map((p) => [p.id, p.full_name]))
   const open = rows?.find((r) => r.id === openId)
   const pay = (keys) => (summary?.payments ?? []).filter((p) => keys.includes(p.method)).reduce((s, p) => s + Number(p.total), 0)
-  const filtered = method || status || staff || search || item
+  const filtered = method || otype || status || staff || search || item
 
   return (
     <main className="mx-auto max-w-[90rem] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
@@ -140,7 +142,14 @@ export default function Sales() {
           <Package className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-bean" aria-hidden="true" />
           <input type="search" value={itemTyped} onChange={(e) => setItemTyped(e.target.value)} disabled={byReceipt} placeholder="Item, e.g. Latte" className={`${FIELD} pl-10`} />
         </label>
-        <div className={`grid gap-2 ${isManager ? 'grid-cols-3' : 'grid-cols-2'} xl:flex`}>
+        <div className={`grid gap-2 ${isManager ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} xl:flex`}>
+          <label>
+            <span className="sr-only">Order type</span>
+            <select value={otype} onChange={(e) => setOtype(e.target.value)} disabled={byReceipt} className={`${SELECT} w-full`}>
+              <option value="">All orders</option>
+              {ORDER_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
           <label>
             <span className="sr-only">Payment method</span>
             <select value={method} onChange={(e) => setMethod(e.target.value)} disabled={byReceipt} className={`${SELECT} w-full`}>
@@ -216,7 +225,7 @@ function SaleRow({ r, who, onOpen }) {
       <td className="px-5 py-3 max-md:p-0">
         <button type="button" onClick={(e) => (e.stopPropagation(), onOpen())} className="text-left">
           <span className="tabular font-bold group-hover:underline group-hover:decoration-teal group-hover:decoration-2 group-hover:underline-offset-4">{receiptNo(r.sale_no)}</span>
-          <span className="tabular block text-xs text-bean">{fmtDateTime(r.sold_at)}{r.customer_name && ` · ${r.customer_name}`}</span>
+          <span className="tabular block text-xs text-bean">{fmtDateTime(r.sold_at)} · {ORDER_TYPE[r.order_type] ?? 'Dine-in'}{r.customer_name && ` · ${r.customer_name}`}</span>
         </button>
       </td>
       <td className={`px-3 py-3 max-md:order-3 max-md:col-span-2 max-md:p-0 max-md:pt-1 ${voided ? 'text-bean' : ''}`}>{itemsSummary(r.sale_items)}</td>
@@ -284,6 +293,7 @@ function ReceiptSheet({ r, names, canVoid, onClose, onVoided }) {
             <dt className="font-bold">Total</dt>
             <dd className={`font-display text-4xl leading-none font-semibold ${voided ? 'text-bean line-through decoration-2' : ''}`}>{money(r.total)}</dd>
           </div>
+          <Line k="Order" v={`${ORDER_TYPE[r.order_type] ?? 'Dine-in'} · ${r.order_status === 'preparing' ? 'still preparing' : 'completed'}`} />
           <Line k="Paid by" v={METHOD[r.payment_method]} />
           {r.payment_ref && <Line k="GCash ref (last 4)" v={r.payment_ref} />}
           {r.amount_tendered != null && (

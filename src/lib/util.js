@@ -41,4 +41,11 @@ export const METHODS = [
   ['other', 'Other'],
 ]
 export const METHOD = Object.fromEntries(METHODS)
+// [value, label, who-it's-for field label, placeholder]
+export const ORDER_TYPES = [
+  ['dine_in', 'Dine-in', 'Table', 'Table 4'],
+  ['take_out', 'Take-out', 'Name', 'Name for the cup'],
+  ['delivery', 'Delivery', 'Name & address', 'Juan, Panagsama Rd near the dive shop'],
+]
+export const ORDER_TYPE = Object.fromEntries(ORDER_TYPES.map(([v, l]) => [v, l]))
 export const receiptNo = (n) => (n == null ? '—' : '#' + String(n).padStart(5, '0'))

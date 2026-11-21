@@ -4,7 +4,7 @@ import { motion } from 'motion/react'
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
-import { METHOD, addDays, fmtDay, money, monthStart, pct, plural, shortPeso } from '../lib/util.js'
+import { METHOD, ORDER_TYPE, addDays, fmtDay, money, monthStart, pct, plural, shortPeso } from '../lib/util.js'
 import { Empty, Kpis, PageHeader, Panel, Problem, RangePicker, presets, rangeLabel } from '../components/ui.jsx'
 
 // Teal = profit and sales, tomato = money out. Red vs blue-green stays apart for colour-blind readers,
@@ -335,7 +335,10 @@ function Overview({ r }) {
             ))}
           </dl>
         </Panel>
-        <Panel title="Sales by category" note="Before receipt discounts" className="xl:col-span-5">
+        <Panel title="Dine-in, take-out, delivery" note="Sales by how the order left" className="xl:col-span-2">
+          <HBars rows={(r.types ?? []).map((x) => ({ name: `${ORDER_TYPE[x.type] ?? x.type} · ${x.receipts}`, value: num(x.total) }))} />
+        </Panel>
+        <Panel title="Sales by category" note="Before receipt discounts" className="xl:col-span-3">
           <HBars rows={r.categories.map((x) => ({ name: x.category, value: num(x.revenue) }))} />
         </Panel>
       </div>
