@@ -25,7 +25,7 @@ export function AuthProvider({ children }) {
       .select('full_name, role')
       .eq('id', uid)
       .maybeSingle()
-      .then(({ data }) => live && setLoaded({ uid, full_name: data?.full_name ?? session?.user.email, role: data?.role ?? 'inactive' }))
+      .then(({ data, error }) => live && setLoaded({ uid, full_name: data?.full_name ?? session?.user.email, role: data?.role ?? 'inactive', error: error?.message ?? null }))
     return () => (live = false)
   }, [uid]) // eslint-disable-line react-hooks/exhaustive-deps
 

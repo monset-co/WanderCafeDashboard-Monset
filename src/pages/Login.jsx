@@ -55,13 +55,17 @@ export default function Login() {
 
 // Signed in, but the role is inactive (new account, or switched off).
 export function NoAccess() {
-  const { session, signOut } = useAuth()
+  const { session, profile, signOut } = useAuth()
   return (
     <Frame>
       <div className="mt-8 rounded-2xl bg-paper p-6 text-center ring-1 ring-parchment">
-        <h1 className="text-lg font-bold">Not active yet</h1>
+        <h1 className="text-lg font-bold">{profile?.error ? 'Couldn’t check your access' : 'Not active yet'}</h1>
         <p className="mt-2 text-bean">
-          <b className="text-espresso">{session.user.email}</b> is signed in but has no access. Ask the admin to set your role on the Staff page.
+          {profile?.error ? (
+            <>The database refused to read your account: <b className="text-espresso">{profile.error}</b>. Run the latest supabase/schema.sql in the Supabase SQL Editor, then refresh.</>
+          ) : (
+            <><b className="text-espresso">{session.user.email}</b> is signed in but has no access. Ask the admin to set your role on the Staff page.</>
+          )}
         </p>
         <button type="button" onClick={signOut} className={`${BTN.quiet} mt-5`}>
           <LogOut className="size-4" aria-hidden="true" /> Sign out

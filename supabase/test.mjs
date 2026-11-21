@@ -8,6 +8,7 @@ import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist'
 
 const db = new PGlite({ extensions: { btree_gist } })
 // Minimal Supabase stand-in: auth schema, auth.uid() from a session setting, the API roles.
+// No default grants: new Supabase projects don't expose tables to the API until granted, so the schema must.
 await db.exec(`
   create role anon nologin; create role authenticated nologin;
   create schema auth;
@@ -15,9 +16,6 @@ await db.exec(`
   create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   grant usage on schema public, auth to anon, authenticated;
   grant execute on function auth.uid() to anon, authenticated;
-  alter default privileges in schema public grant all on tables to anon, authenticated;
-  alter default privileges in schema public grant all on sequences to anon, authenticated;
-  alter default privileges in schema public grant execute on functions to anon, authenticated;
 `)
 const sql = readFileSync(new URL('schema.sql', import.meta.url), 'utf8').replace(/create extension if not exists pgcrypto;/, '')
 await db.exec(sql)
@@ -139,9 +137,6 @@ await web.exec(`
   create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}', last_sign_in_at timestamptz);
   create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   grant usage on schema public, auth to anon, authenticated; grant execute on function auth.uid() to anon, authenticated;
-  alter default privileges in schema public grant all on tables to anon, authenticated;
-  alter default privileges in schema public grant all on sequences to anon, authenticated;
-  alter default privileges in schema public grant execute on functions to anon, authenticated;
   create extension btree_gist;
   create table bookings (
     id bigint generated always as identity primary key, ref text not null unique, room_id text not null,

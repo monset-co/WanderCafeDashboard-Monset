@@ -832,7 +832,21 @@ grant execute on function public.bookings_report(date, date) to authenticated;
 grant execute on function public.staff_list() to authenticated;
 
 -- ---------------------------------------------------------------------
--- 9. LIVE UPDATES (Sales log and Bookings refresh by themselves)
+-- 9. API ACCESS. New Supabase projects don't expose tables to the API
+-- until granted. Signed-in users get exactly this; row-level security
+-- (section 7) then decides which rows. Visitors (anon) get nothing.
+-- ---------------------------------------------------------------------
+grant usage on schema public to anon, authenticated;
+grant select on public.profiles, public.products, public.product_changes, public.sales, public.sale_items,
+                public.stock_movements, public.rooms, public.bookings, public.booking_changes, public.v_sale_totals
+  to authenticated;
+grant insert on public.stock_movements, public.bookings, public.rooms to authenticated;
+grant update on public.rooms to authenticated;
+-- products and profiles: column-level insert/update grants in section 7; bookings: update columns in section 7.
+grant execute on function public.my_role(), public.is_admin(), public.is_manager(), public.is_staff() to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 10. LIVE UPDATES (Sales log and Bookings refresh by themselves)
 -- ---------------------------------------------------------------------
 do $$
 declare t text;
@@ -847,7 +861,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- 10. STARTING DATA: the printed menu and the website's placeholder rooms.
+-- 11. STARTING DATA: the printed menu and the website's placeholder rooms.
 -- Food costs start at 0: set each item's cost in Inventory so profit is real.
 -- ---------------------------------------------------------------------
 insert into public.rooms (id, name, bed, max_guests, rate, color, sort) values
