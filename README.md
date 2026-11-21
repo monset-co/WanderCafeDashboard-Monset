@@ -15,6 +15,11 @@ The register, sales log, inventory and analytics follow CourageD POS; bookings f
 | Bookings: add, confirm, check in/out, take payments, guest details | ✓ | ✓ | ✓ |
 | Bookings: change room/dates/price, cancel; edit rooms | | ✓ | ✓ |
 | Analytics (cafe + rooms) | | ✓ | ✓ |
+| Order board: mark orders done | ✓ | ✓ | ✓ |
+| Schedule: see the roster | ✓ | ✓ | ✓ |
+| Schedule: add and change shifts | | ✓ | ✓ |
+| Updates: read | ✓ (for everyone) | ✓ | ✓ |
+| Updates: post, pin, remove | | | ✓ |
 | Staff logins and roles | | | ✓ |
 
 The database enforces all of this (row-level security, triggers and functions in `supabase/schema.sql`); the app only hides what a role can't use. New sign-ups get no access. There is always at least one admin. Sales are never edited (voided with a reason), bookings are never deleted (cancelled), and every product and booking change is logged with who made it.
@@ -57,6 +62,15 @@ Adding logins and resetting passwords need the server function, so they only wor
 6. Supabase › Authentication › URL Configuration: set the Site URL to that address.
 
 `public/_headers` sets security headers (CSP allows only this site and `*.supabase.co`).
+
+### Push notifications (once)
+
+1. `npm run vapid` prints a key pair.
+2. Build variable: `VITE_VAPID_PUBLIC_KEY` = the public key. Worker variables: `VAPID_PUBLIC_KEY` (same) and `VAPID_PRIVATE_KEY` (**secret**). Optional: `VAPID_SUBJECT` = `mailto:` the owner's email.
+3. Redeploy. Each person taps **Turn on notifications** on each device (iPhone/iPad: install first via Share › Add to Home Screen, then turn them on from the installed app). A test notification arrives straight away.
+4. Website bookings (when the website is live): Supabase › Database › Webhooks › Create: table `bookings`, event Insert, type HTTP POST to `https://<dashboard-domain>/api/notify`, header `x-webhook-secret: <any long random text>`. Add the same text as the Worker secret `WEBHOOK_SECRET`.
+
+Who gets what: admin updates go to everyone they're for (staff and managers, or managers only); new bookings go to managers and admins.
 
 ## Day to day
 

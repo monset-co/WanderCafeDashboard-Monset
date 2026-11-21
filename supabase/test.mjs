@@ -164,6 +164,22 @@ assert.equal((await as(S, `select * from shifts where shift_date = '2030-02-02'`
 await as(M, `delete from shifts where shift_date = '2030-02-02' and start_time = '15:00'`)
 assert.equal((await one(`select count(*)::int c from shifts`)).c, 1); ok('managers remove shifts')
 
+// ---- updates and push subscriptions ----
+await as(A, `insert into announcements (title, body) values ('New menu Monday', 'Pho is back.')`)
+await as(A, `insert into announcements (title, audience) values ('Payroll moved to Friday', 'managers')`)
+await fails(M, `insert into announcements (title) values ('From a manager')`, /row-level security/); ok('only admins post updates')
+assert.deepEqual((await as(S, 'select title from announcements')).map((r) => r.title), ['New menu Monday']); ok('staff see updates for everyone, not managers-only ones')
+assert.equal((await as(M, 'select title from announcements')).length, 2); ok('managers see both')
+assert.equal((await as(X, 'select title from announcements')).length, 0); ok('inactive users see none')
+await as(S, `select save_push_subscription('https://push.example/abc', 'BKEY', 'AUTH', 'Edge')`)
+await as(S, `select save_push_subscription('https://push.example/abc', 'BKEY2', 'AUTH2', 'Edge')`)
+assert.equal((await one(`select count(*)::int c from push_subscriptions`)).c, 1); ok('saving the same device twice updates it')
+await as(M, `select save_push_subscription('https://push.example/abc', 'BKEY3', 'AUTH3', 'Edge')`)
+assert.equal((await one(`select user_id from push_subscriptions`)).user_id, M); ok('a shared device moves to whoever signed in last')
+assert.equal((await as(S, 'select * from push_subscriptions')).length, 0); ok('people only read their own devices')
+await fails(S, `insert into push_subscriptions (user_id, endpoint, p256dh, auth) values ($1, 'https://x', 'k', 'a')`, /permission denied|row-level/, [S]); ok('devices are only saved through the function')
+await fails(X, `select save_push_subscription('https://push.example/z', 'k', 'a')`, /Not authorized/); ok('inactive users cannot subscribe')
+
 // ---- a project where the website's schema ran first (WanderCafe-monset/supabase/schema.sql) ----
 const web = new PGlite({ extensions: { btree_gist } })
 await web.exec(`

@@ -1,0 +1,22 @@
+{
+  "name": "Wander Dashboard",
+  "short_name": "Wander",
+  "description": "Wander Cafe + B&B team dashboard: orders, register, bookings, schedule and updates.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f8f1e7",
+  "theme_color": "#33241c",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Orders", "url": "/orders" },
+    { "name": "Register", "url": "/register" },
+    { "name": "Bookings", "url": "/bookings" }
+  ]
+}

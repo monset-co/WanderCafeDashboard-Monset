@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
+import { useUpdates } from '../lib/updates.js'
+import { LatestUpdate } from './Updates.jsx'
 import { ArrowRight, BedDouble, Clock, LogIn, LogOut, PackageX } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { ORDER_TYPE, ORDER_TYPES, addDays, cents, fmtDay, manilaToday, money, pct, plural, receiptNo } from '../lib/util.js'
@@ -23,7 +25,9 @@ const greeting = () => {
 
 // The admin and manager home: today at a glance, each part linking to where it's handled.
 export default function Overview() {
-  const { profile } = useAuth()
+  const { profile, session } = useAuth()
+  const navigate = useNavigate()
+  const { latest } = useUpdates(session.user.id)
   const [d, setD] = useState(null)
   const [error, setError] = useState(null)
   const t = manilaToday()
@@ -41,7 +45,7 @@ export default function Overview() {
     const err = [rep, board, bk, rooms, stock, shifts, people].find((r) => r.error)?.error
     if (err) return setError(err.message)
     setError(null)
-    setD({ rep: rep.data, board: board.data, bookings: bk.data, rooms: rooms.data, low: stock.data.filter((p) => p.stock_qty <= p.reorder_level), shifts: shifts.data, names: Object.fromEntries(people.data.map((p) => [p.id, p.full_name])) })
+    setD({ rep: rep.data, board: board.data, bookings: bk.data, rooms: rooms.data, low: stock.data.filter((p) => p.kind !== 'made' && p.stock_qty <= p.reorder_level), shifts: shifts.data, names: Object.fromEntries(people.data.map((p) => [p.id, p.full_name])) })
   }, [t])
   useEffect(() => {
     load()
@@ -53,6 +57,7 @@ export default function Overview() {
   return (
     <main className="mx-auto max-w-[90rem] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
       <PageHeader title={`${greeting()}${first ? `, ${first}` : ''}.`} sub={fmtDay(t, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} />
+      <LatestUpdate latest={latest} onOpen={() => navigate('/updates')} />
       {error && <div className="mt-6"><Problem onRetry={load}>Couldn't load today. {error}</Problem></div>}
       {!d && !error && (
         <div className="mt-6 space-y-6" role="status" aria-label="Loading today">

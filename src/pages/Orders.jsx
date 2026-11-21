@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Check, Clock, NotebookPen, RotateCcw, UserRound } from 'lucide-react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
+import { useUpdates } from '../lib/updates.js'
+import { LatestUpdate } from './Updates.jsx'
+import { useAuth } from '../auth.jsx'
 import { supabase } from '../lib/supabase.js'
 import { ORDER_TYPE, ORDER_TYPES, receiptNo } from '../lib/util.js'
 import { BTN, CARD, Chips, PageHeader, Problem, useToast } from '../components/ui.jsx'
@@ -15,6 +18,9 @@ const wait = (m) => (m >= 25 ? ['bg-tomato/10 text-tomato', `${m} min`] : m >= 1
 // The kitchen and counter's board: every order rung up today, preparing until someone taps Done.
 export default function Orders() {
   const notify = useToast()
+  const navigate = useNavigate()
+  const { session } = useAuth()
+  const { latest } = useUpdates(session.user.id)
   const [orders, setOrders] = useState(null)
   const [error, setError] = useState(null)
   const [type, setType] = useState('all')
@@ -58,6 +64,7 @@ export default function Orders() {
       <PageHeader title="Orders" sub="Oldest first. Tap Done when an order is served, picked up or out for delivery.">
         <Link to="/register" className={BTN.primary}>New order</Link>
       </PageHeader>
+      <LatestUpdate latest={latest} onOpen={() => navigate('/updates')} />
       <div className="mt-6">
         <Chips id="ord-type" label="Order type" value={type} onChange={setType} options={[['all', 'All', openCount('all')], ...ORDER_TYPES.map(([v, l]) => [v, l, openCount(v)])]} />
       </div>

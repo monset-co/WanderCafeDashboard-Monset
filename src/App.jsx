@@ -1,7 +1,9 @@
 import { Component, lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router'
 import { MotionConfig, motion } from 'motion/react'
-import { BarChart3, BedDouble, Boxes, CalendarClock, ChefHat, LayoutDashboard, LogOut, ReceiptText, ShoppingBag, UsersRound } from 'lucide-react'
+import { BarChart3, BedDouble, Boxes, CalendarClock, ChefHat, LayoutDashboard, LogOut, Megaphone, ReceiptText, ShoppingBag, UsersRound } from 'lucide-react'
+import { DeviceButtons } from './components/DeviceButtons.jsx'
+import { useUpdates } from './lib/updates.js'
 import { configured } from './lib/supabase.js'
 import { AuthProvider, ROLE_LABEL, useAuth } from './auth.jsx'
 import { ToastProvider } from './components/ui.jsx'
@@ -11,6 +13,7 @@ import Register from './pages/Register.jsx'
 const Overview = lazy(() => import('./pages/Overview.jsx'))
 const Orders = lazy(() => import('./pages/Orders.jsx'))
 const Schedule = lazy(() => import('./pages/Schedule.jsx'))
+const Updates = lazy(() => import('./pages/Updates.jsx'))
 const Bookings = lazy(() => import('./pages/Bookings.jsx'))
 const Sales = lazy(() => import('./pages/Sales.jsx'))
 const Inventory = lazy(() => import('./pages/Inventory.jsx'))
@@ -28,6 +31,7 @@ const NAV = [
   ['Sales', '/sales', ReceiptText, ALL],
   ['Inventory', '/inventory', Boxes, ALL],
   ['Schedule', '/schedule', CalendarClock, ALL],
+  ['Updates', '/updates', Megaphone, ALL],
   ['Analytics', '/analytics', BarChart3, MANAGERS],
   ['Staff', '/staff', UsersRound, ['admin']],
 ]
@@ -55,7 +59,8 @@ function Gate() {
 }
 
 function Shell() {
-  const { profile, isManager, isAdmin, signOut } = useAuth()
+  const { profile, session, isManager, isAdmin, signOut } = useAuth()
+  const { unread } = useUpdates(session.user.id)
   const nav = NAV.filter((n) => n[3].includes(profile.role))
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[4.75rem_minmax(0,1fr)] xl:grid-cols-[14.5rem_minmax(0,1fr)]">
@@ -75,12 +80,16 @@ function Shell() {
                   {isActive && <motion.span layoutId="nav-brush" className="brush absolute inset-x-0 inset-y-0.5" transition={{ type: 'spring', duration: 0.35, bounce: 0 }} />}
                   <Icon className={`relative size-[1.15rem] shrink-0 transition-colors duration-150 ${isActive ? 'text-roast' : 'text-foam group-hover:text-paper'}`} aria-hidden="true" />
                   <span aria-hidden="true" className={`relative hidden transition-colors duration-150 xl:inline ${isActive ? 'text-roast' : 'text-foam group-hover:text-paper'}`}>{label}</span>
+                  {to === '/updates' && unread.length > 0 && (
+                    <span className="tabular absolute top-1 right-1 grid min-w-4.5 place-items-center rounded-full bg-tiffany px-1 text-[0.65rem] leading-4.5 font-extrabold text-roast xl:static xl:ml-auto" aria-label={`${unread.length} new`}>{unread.length}</span>
+                  )}
                 </>
               )}
             </NavLink>
           ))}
         </nav>
         <div className="flex shrink-0 items-center gap-2 lg:mt-auto lg:flex-col lg:items-stretch">
+          <DeviceButtons />
           <p className="min-w-0 text-right text-sm leading-tight max-sm:hidden lg:hidden xl:block xl:px-2 xl:text-left">
             <span className="block truncate font-semibold">{profile.full_name}</span>
             <span className="text-xs font-bold tracking-[0.1em] text-tiffany uppercase">{ROLE_LABEL[profile.role]}</span>
@@ -101,6 +110,7 @@ function Shell() {
             <Route path="/orders" element={<Orders />} />
             <Route path="/register" element={<Register />} />
             <Route path="/schedule" element={<Schedule />} />
+            <Route path="/updates" element={<Updates />} />
             <Route path="/bookings/*" element={<Bookings />} />
             <Route path="/sales" element={<Sales />} />
             <Route path="/inventory" element={<Inventory />} />

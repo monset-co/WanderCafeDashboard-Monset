@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase.js'
 import { addDays, cents, fmtDateTime, fmtDay, intInput, manilaToday, moneyInput, nightsBetween, plural } from '../lib/util.js'
 import { BTN, Badge, CARD, Chips, EASE_OUT, Empty, FIELD, HoldButton, Kpis, LABEL, PageHeader, Problem, Segmented, Sheet, SkeletonRows, Submit, useToast } from '../components/ui.jsx'
 import { useAuth } from '../auth.jsx'
+import { notifyTeam } from '../lib/device.js'
 
 // ---- Words for every state: icon + label + tone, never colour alone ----
 export const STATUS = {
@@ -148,7 +149,7 @@ export default function Bookings() {
             onSaved={(b, created) => {
               setForm(null)
               load()
-              if (created) setOpenId(b.id)
+              if (created) setOpenId(b.id), notifyTeam({ kind: 'booking', id: b.id })
               notify(created ? `Booked ${b.name} · ${b.ref}` : `${b.name}’s booking saved`)
             }}
           />

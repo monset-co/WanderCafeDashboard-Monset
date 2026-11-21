@@ -38,7 +38,16 @@ export function AuthProvider({ children }) {
     isAdmin: role === 'admin',
     isManager: role === 'admin' || role === 'manager',
     isStaff: role === 'admin' || role === 'manager' || role === 'staff',
-    signOut: () => supabase.auth.signOut(),
+    // A shared tablet stops getting this person's notifications when they sign out.
+    signOut: async () => {
+      try {
+        const sub = await (await navigator.serviceWorker?.ready)?.pushManager?.getSubscription()
+        if (sub) await supabase.rpc('remove_push_subscription', { p_endpoint: sub.endpoint })
+      } catch {
+        /* nothing to remove */
+      }
+      return supabase.auth.signOut()
+    },
   }
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>
 }
