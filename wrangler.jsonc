@@ -4,6 +4,9 @@
   "main": "worker/index.js",
   "compatibility_date": "2026-11-19",
   "observability": { "enabled": true },
+  // Variables live in Cloudflare › Settings › Variables and Secrets (SUPABASE_URL, VAPID_*…):
+  // keep them on every deploy instead of replacing them with this file's (none).
+  "keep_vars": true,
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
