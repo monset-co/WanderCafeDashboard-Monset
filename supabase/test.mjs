@@ -10,11 +10,11 @@ const db = new PGlite({ extensions: { btree_gist } })
 // Minimal Supabase stand-in: auth schema, auth.uid() from a session setting, the API roles.
 // No default grants: new Supabase projects don't expose tables to the API until granted, so the schema must.
 await db.exec(`
-  create role anon nologin; create role authenticated nologin;
+  create role anon nologin; create role authenticated nologin; create role service_role nologin;
   create schema auth;
   create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}', last_sign_in_at timestamptz);
   create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
-  grant usage on schema public, auth to anon, authenticated;
+  grant usage on schema public, auth to anon, authenticated, service_role;
   grant execute on function auth.uid() to anon, authenticated;
 `)
 const sql = readFileSync(new URL('schema.sql', import.meta.url), 'utf8').replace(/create extension if not exists pgcrypto;/, '')
@@ -180,10 +180,44 @@ assert.equal((await as(S, 'select * from push_subscriptions')).length, 0); ok('p
 await fails(S, `insert into push_subscriptions (user_id, endpoint, p256dh, auth) values ($1, 'https://x', 'k', 'a')`, /permission denied|row-level/, [S]); ok('devices are only saved through the function')
 await fails(X, `select save_push_subscription('https://push.example/z', 'k', 'a')`, /Not authorized/); ok('inactive users cannot subscribe')
 
+// ---- website: paid pre-orders and bookings (section 12), called with the service key ----
+const asWebsite = async (q, params) => {
+  await db.query(`select set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claim.role', 'service_role', false)`)
+  await db.exec('set role service_role')
+  try { return (await db.query(q, params)).rows } finally { await db.exec('reset role'); await db.query(`select set_config('request.jwt.claim.role', '', false)`) }
+}
+const todayPH = (await one(`select (now() at time zone 'Asia/Manila')::date::text d`)).d
+await db.query(`insert into orders (ref, items, total, mode, ready_date, ready_time, name, email, phone, notes)
+  values ('WDO-T1', $1, 25000, 'pickup', $2, '23:59', 'Web Wanda', 'w@x.ph', '0917 000 0000', 'Less ice')`,
+  [JSON.stringify([{ code: 'CF04', label: 'Latte', unit: 125, qty: 2 }, { code: 'ZZ99', label: 'Mystery Cake', unit: 0, qty: 1 }]), todayPH])
+await fails(M, `select record_web_order('WDO-T1')`, /permission denied/); ok('signed-in staff cannot call the website functions')
+const sid = (await asWebsite(`select record_web_order('WDO-T1', 'pay_123', 'gcash') as id`))[0].id
+assert.equal((await asWebsite(`select record_web_order('WDO-T1', 'pay_123', 'gcash') as id`))[0].id, sid); ok('a webhook retry returns the same sale')
+const ws = await one(`select source, web_ref, payment_method, payment_ref, order_status, total, note, staff_id from sales where id = '${sid}'`)
+assert.deepEqual([ws.source, ws.web_ref, ws.payment_method, ws.payment_ref, ws.order_status, Number(ws.total), ws.staff_id], ['web', 'WDO-T1', 'gcash', 'pay_123', 'preparing', 260, null])
+assert.match(ws.note, /Mystery Cake x1/); assert.match(ws.note, /PAID ONLINE P250\.00, POS PRICE P260\.00/); assert.match(ws.note, /Less ice/)
+ok('a paid website order becomes a POS sale; unknown items and price differences are flagged in the note')
+const card = (await as(S, 'select order_board() as b'))[0].b.find((o) => o.id === sid)
+assert.equal(card?.staff_name, 'Website'); ok('it shows on the order board as from the website')
+await db.query(`insert into orders (ref, items, total, mode, ready_date, ready_time, name, email, phone) values ('WDO-T2', $1, 13000, 'dine-in', '2031-01-01', '09:00', 'Later', 'l@x.ph', '0917')`, [JSON.stringify([{ code: 'CF04', label: 'Latte', unit: 130, qty: 1 }])])
+const later = (await asWebsite(`select record_web_order('WDO-T2') as id`))[0].id
+assert.ok(!(await as(S, 'select order_board() as b'))[0].b.some((o) => o.id === later)); ok('a pre-order for a later day waits off the board until its day')
+await db.query(`insert into orders (ref, items, total, mode, ready_date, ready_time, name, email, phone) values ('WDO-T3', $1, 100, 'pickup', $2, '10:00', 'Nobody', 'n@x.ph', '0917')`, [JSON.stringify([{ code: 'ZZ98', label: 'Ghost', qty: 1 }]), todayPH])
+await assert.rejects(asWebsite(`select record_web_order('WDO-T3')`), /no items the POS knows/); ok('an order with nothing the POS knows is refused loudly (PayMongo retries)')
+
+await db.query(`insert into bookings (ref, room_id, check_in, check_out, guests, name, email, phone, total, deposit, source) values ('WDR-T1', 'room-b', '2030-06-01', '2030-06-03', 2, 'Web Guest', 'g@x.ph', '0917', 640000, 320000, 'web')`)
+await fails(M, `select confirm_web_booking('WDR-T1')`, /permission denied/); ok('staff cannot confirm a website payment')
+assert.equal((await asWebsite(`select confirm_web_booking('WDR-T1', 'pay_9') as r`))[0].r, 'confirmed')
+const wb = await one(`select status, paid from bookings where ref = 'WDR-T1'`)
+assert.deepEqual([wb.status, wb.paid], ['confirmed', 320000]); ok('a paid website booking is confirmed with its deposit recorded')
+assert.equal((await asWebsite(`select confirm_web_booking('WDR-T1', 'pay_9') as r`))[0].r, 'unchanged'); ok('a webhook retry changes nothing')
+await db.query(`insert into bookings (ref, room_id, check_in, check_out, guests, name, email, phone, total, deposit, source, status) values ('WDR-T2', 'room-b', '2030-06-02', '2030-06-04', 2, 'Late Payer', 'p@x.ph', '0917', 640000, 320000, 'web', 'expired')`)
+assert.equal((await asWebsite(`select confirm_web_booking('WDR-T2') as r`))[0].r, 'conflict'); ok('paying after the hold lapsed on taken nights flags a conflict for a refund')
+
 // ---- a project where the website's schema ran first (WanderCafe-monset/supabase/schema.sql) ----
 const web = new PGlite({ extensions: { btree_gist } })
 await web.exec(`
-  create role anon nologin; create role authenticated nologin; create schema auth;
+  create role anon nologin; create role authenticated nologin; create role service_role nologin; create schema auth;
   create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}', last_sign_in_at timestamptz);
   create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   grant usage on schema public, auth to anon, authenticated; grant execute on function auth.uid() to anon, authenticated;

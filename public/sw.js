@@ -21,9 +21,18 @@ self.addEventListener('fetch', (e) => {
   }
   // Pages: network first so a deploy shows up at once; the cached app if offline.
   if (e.request.mode === 'navigate') {
-    e.respondWith(fetch(e.request).then((res) => (res.ok && caches.open(CACHE).then((c) => c.put('/', res.clone())), res)).catch(() => caches.match('/')))
+    e.respondWith(fetch(e.request).then((res) => (res.ok && e.waitUntil(keepPage(res.clone())), res)).catch(() => caches.match('/')))
   }
 })
+
+// A new deploy changes the page; drop the old build's files then, or the cache grows forever.
+async function keepPage(res) {
+  const c = await caches.open(CACHE)
+  const [html, old] = await Promise.all([res.clone().text(), c.match('/').then((r) => r?.text())])
+  if (old !== undefined && old !== html)
+    for (const req of await c.keys()) if (new URL(req.url).pathname.startsWith('/assets/')) await c.delete(req)
+  await c.put('/', res)
+}
 
 self.addEventListener('push', (e) => {
   let m = {}
@@ -51,7 +60,7 @@ self.addEventListener('notificationclick', (e) => {
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       const open = list.find((c) => c.url.startsWith(location.origin))
-      return open ? open.focus().then((c) => c.navigate?.(url)) : self.clients.openWindow(url)
+      return open ? open.focus().then((c) => c.navigate?.(url)).catch(() => self.clients.openWindow(url)) : self.clients.openWindow(url)
     }),
   )
 })

@@ -60,6 +60,11 @@ create or replace function public.is_staff()
 returns boolean language sql stable security definer set search_path = public as $$
   select public.my_role() in ('admin', 'manager', 'staff')
 $$;
+-- The website's server (service key). It has no login, so it is never "staff"; see section 12.
+create or replace function public.is_service()
+returns boolean language sql stable as $$
+  select coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '') = 'service_role'
+$$;
 
 -- Never lose the last admin.
 create or replace function public.keep_one_admin()
@@ -205,6 +210,16 @@ begin
   end if;
 end $$;
 create index if not exists sales_open_orders_idx on public.sales (order_status, sold_at);
+-- Website pre-orders (section 12): where the sale came from, its WDO- ref, and when it's wanted.
+alter table public.sales add column if not exists source   text not null default 'register';
+alter table public.sales add column if not exists web_ref  text unique;
+alter table public.sales add column if not exists ready_at timestamptz;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'sales_source_check') then
+    alter table public.sales add constraint sales_source_check check (source in ('register', 'web'));
+  end if;
+end $$;
 
 create table if not exists public.sale_items (
   id            uuid primary key default gen_random_uuid(),
@@ -296,7 +311,7 @@ declare
   v_total     numeric;
   v_made      boolean := false;  -- anything for the kitchen to prepare?
 begin
-  if not public.is_staff() then
+  if not (public.is_staff() or public.is_service()) then
     raise exception 'Not authorized';
   end if;
 
@@ -878,12 +893,14 @@ begin
   return (
     select coalesce(jsonb_agg(o order by o.sold_at), '[]'::jsonb) from (
       select s.id, s.sale_no, s.sold_at, s.order_type, s.order_status, s.completed_at, s.customer_name, s.note,
-             coalesce(pf.full_name, 'Unknown') as staff_name,
+             coalesce(pf.full_name, case when s.source = 'web' then 'Website' end, 'Unknown') as staff_name,
+             s.source, s.ready_at,
              (select coalesce(jsonb_agg(jsonb_build_object('name', si.product_name, 'qty', si.qty) order by si.product_name), '[]'::jsonb)
                 from public.sale_items si where si.sale_id = s.id) as items
         from public.sales s
         left join public.profiles pf on pf.id = s.staff_id
        where s.status = 'completed'
+         and (s.ready_at is null or (s.ready_at at time zone 'Asia/Manila')::date <= (now() at time zone 'Asia/Manila')::date)
          and (s.order_status = 'preparing'
               or (s.completed_at at time zone 'Asia/Manila')::date = (now() at time zone 'Asia/Manila')::date)
        order by s.sold_at desc
@@ -1123,6 +1140,120 @@ insert into public.products (code, name, category, kind, selling_price, sort) va
   ('AD01', 'Add black coffee or juice',  'Add-ons',          'made',  50, 1),
   ('AD02', 'Add cheese slice',           'Add-ons',          'made',  20, 2)
 on conflict (code) do nothing;
+
+-- ---------------------------------------------------------------------
+-- 12. WEBSITE: online room bookings and cafe pre-orders
+-- The website (WanderCafe-monset) writes with the service key. It saves an unpaid
+-- booking / order at checkout, then on PayMongo's "paid" webhook calls ONE function:
+--   bookings: confirm_web_booking(ref, payment_id)        -> 'confirmed' | 'conflict' | 'unchanged'
+--   orders:   record_web_order(ref, payment_id, method)   -> the POS sale id (shows on the order board)
+-- Both are safe to retry (PayMongo retries) and only the service key may call them.
+-- Website-side steps: integrations/website/README.md.
+-- ---------------------------------------------------------------------
+create table if not exists public.orders (
+  id          bigint generated always as identity primary key,
+  ref         text not null unique,                 -- WDO-...
+  items       jsonb not null,                       -- [{ code, label, unit, qty, extras: [code] }], unit in pesos
+  total       int  not null,                        -- centavos, what PayMongo charged
+  mode        text not null,                        -- 'pickup' | 'dine-in'
+  ready_date  date not null,
+  ready_time  text not null,                        -- "10:30", Manila
+  name        text not null,
+  email       text not null,
+  phone       text not null,
+  notes       text not null default '',
+  status      text not null default 'pending',      -- pending -> paid; the kitchen status lives on the sale
+  payment_id  text,
+  created_at  timestamptz not null default now()
+);
+alter table public.orders add column if not exists sale_id uuid references public.sales(id);
+alter table public.orders enable row level security; -- no policies: only the service key reads or writes it
+
+create or replace function public.record_web_order(p_ref text, p_payment_id text default null, p_method text default null)
+returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  o       public.orders%rowtype;
+  v_items jsonb := '[]'::jsonb;
+  v_miss  text[] := '{}';
+  v_line  jsonb;
+  v_code  text;
+  v_pid   uuid;
+  v_sale  uuid;
+  v_total numeric;
+  v_ready timestamptz;
+  v_note  text;
+begin
+  if not public.is_service() then
+    raise exception 'Not authorized';
+  end if;
+  select * into o from public.orders where ref = p_ref for update;
+  if not found then
+    raise exception 'No website order %', p_ref;
+  end if;
+  if o.sale_id is not null then
+    return o.sale_id; -- a webhook retry
+  end if;
+
+  -- Website lines carry the POS product code (plus paid extras' codes). Anything unknown goes in the note.
+  for v_line in select * from jsonb_array_elements(o.items) loop
+    foreach v_code in array array_prepend(v_line->>'code', coalesce(array(select jsonb_array_elements_text(v_line->'extras')), '{}')) loop
+      v_pid := (select id from public.products where code = v_code and is_active);
+      if v_pid is null then
+        v_miss := v_miss || format('%s x%s', coalesce(v_line->>'label', v_code, '?'), v_line->>'qty');
+        exit; -- the item itself is unknown: don't add its extras alone
+      end if;
+      v_items := v_items || jsonb_build_object('product_id', v_pid, 'qty', (v_line->>'qty')::int);
+    end loop;
+  end loop;
+  if jsonb_array_length(v_items) = 0 then
+    raise exception 'Website order % has no items the POS knows (add product codes to the website menu)', p_ref;
+  end if;
+
+  v_ready := (o.ready_date + o.ready_time::time) at time zone 'Asia/Manila';
+  v_note := concat_ws(' · ',
+    'Website ' || o.ref,
+    'Ready ' || to_char(v_ready at time zone 'Asia/Manila', 'Dy Mon FMDD, FMHH12:MI AM'),
+    o.phone,
+    nullif(o.notes, ''),
+    case when cardinality(v_miss) > 0 then 'NOT ON THE POS MENU: ' || array_to_string(v_miss, ', ') end);
+
+  -- Same path as the register (prices, stock, sale items), keyed so a retry never doubles it.
+  v_sale := public.record_sale(v_items, 'other', 0, null, o.name, v_note, md5(o.ref)::uuid, null,
+                               case when o.mode = 'dine-in' then 'dine_in' else 'take_out' end);
+  select total into v_total from public.sales where id = v_sale;
+  if round(v_total * 100) <> o.total then
+    v_note := v_note || format(' · PAID ONLINE P%s, POS PRICE P%s', to_char(o.total / 100.0, 'FM999990.00'), to_char(v_total, 'FM999990.00'));
+  end if;
+  update public.sales
+     set source = 'web', web_ref = o.ref, ready_at = v_ready, note = v_note,
+         payment_method = case p_method when 'gcash' then 'gcash' when 'paymaya' then 'maya' when 'maya' then 'maya' when 'card' then 'card' else 'other' end,
+         payment_ref = p_payment_id,
+         order_status = 'preparing', completed_at = null -- someone hands it over, even if it's all bottled
+   where id = v_sale;
+  update public.orders set status = 'paid', payment_id = coalesce(p_payment_id, payment_id), sale_id = v_sale where id = o.id;
+  return v_sale;
+end $$;
+
+create or replace function public.confirm_web_booking(p_ref text, p_payment_id text default null)
+returns text
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_service() then
+    raise exception 'Not authorized';
+  end if;
+  -- A pending hold, or one that lapsed while the guest paid. A cancelled booking stays cancelled.
+  update public.bookings set status = 'confirmed', paid = greatest(paid, deposit), payment_id = p_payment_id
+   where ref = p_ref and status in ('pending', 'expired');
+  return case when found then 'confirmed' else 'unchanged' end;
+exception when exclusion_violation then
+  -- Paid after the hold lapsed and the nights were taken meanwhile: flag it for a refund.
+  update public.bookings set status = 'conflict', paid = greatest(paid, deposit), payment_id = p_payment_id where ref = p_ref;
+  return 'conflict';
+end $$;
+
+revoke all on function public.record_web_order(text, text, text), public.confirm_web_booking(text, text) from public, anon, authenticated;
+grant execute on function public.record_web_order(text, text, text), public.confirm_web_booking(text, text) to service_role;
 
 notify pgrst, 'reload schema';
 

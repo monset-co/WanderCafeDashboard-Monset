@@ -1,9 +1,9 @@
 import { Component, lazy, Suspense } from 'react'
-import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router'
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from 'react-router'
 import { MotionConfig, motion } from 'motion/react'
 import { BarChart3, BedDouble, Boxes, CalendarClock, ChefHat, LayoutDashboard, LogOut, Megaphone, ReceiptText, ShoppingBag, UsersRound } from 'lucide-react'
 import { DeviceButtons } from './components/DeviceButtons.jsx'
-import { useUpdates } from './lib/updates.js'
+import { UpdatesCtx, useUpdates } from './lib/updates.js'
 import { configured } from './lib/supabase.js'
 import { AuthProvider, ROLE_LABEL, useAuth } from './auth.jsx'
 import { ToastProvider } from './components/ui.jsx'
@@ -60,9 +60,12 @@ function Gate() {
 
 function Shell() {
   const { profile, session, isManager, isAdmin, signOut } = useAuth()
-  const { unread } = useUpdates(session.user.id)
+  const updates = useUpdates(session.user.id)
+  const { unread } = updates
+  const { pathname } = useLocation()
   const nav = NAV.filter((n) => n[3].includes(profile.role))
   return (
+    <UpdatesCtx.Provider value={updates}>
     <div className="min-h-dvh lg:grid lg:grid-cols-[4.75rem_minmax(0,1fr)] xl:grid-cols-[14.5rem_minmax(0,1fr)]">
       <aside className="sticky top-0 z-30 flex h-14 items-center gap-2 bg-roast px-3 text-paper lg:h-dvh lg:flex-col lg:items-stretch lg:gap-0 lg:px-3 lg:py-5">
         <div className="flex shrink-0 items-center gap-2.5 lg:mb-8 lg:justify-center xl:justify-start xl:px-2">
@@ -102,7 +105,8 @@ function Shell() {
         </div>
       </aside>
       <div className="min-w-0">
-        <Crash>
+        {/* Keyed by page, so leaving a page that crashed shows the next one again. */}
+        <Crash key={pathname}>
         <Suspense fallback={null}>
           <Routes>
             {/* Admins and managers start on the Overview; staff start on the order board. */}
@@ -122,6 +126,7 @@ function Shell() {
         </Crash>
       </div>
     </div>
+    </UpdatesCtx.Provider>
   )
 }
 

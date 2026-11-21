@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Ban, Loader2, Package, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
-import { METHOD, ORDER_TYPE, ORDER_TYPES, addDays, fmtDateTime, manilaMidnight, money, plural, receiptNo } from '../lib/util.js'
+import { METHOD, METHODS, ORDER_TYPE, ORDER_TYPES, addDays, fmtDateTime, manilaMidnight, money, plural, receiptNo } from '../lib/util.js'
 import { BTN, Badge, CARD, EASE_OUT, Empty, FIELD, Kpis, LABEL, PageHeader, Problem, RangePicker, Sheet, SkeletonRows, Submit, presets } from '../components/ui.jsx'
 import { useAuth } from '../auth.jsx'
 
@@ -46,12 +46,12 @@ export default function Sales() {
 
   const byReceipt = /^\d+$/.test(search)
   const query = useCallback(
-    (offset) => {
+    (offset, size = PAGE) => {
       let q = supabase
         .from('sales')
         .select(COLS + (item ? ', hit:sale_items!inner(product_name)' : ''), { count: 'exact' })
         .order('sold_at', { ascending: false })
-        .range(offset, offset + PAGE - 1)
+        .range(offset, offset + size - 1)
       if (byReceipt) return q.eq('sale_no', Number(search)) // a receipt number finds it on any date
       q = q.gte('sold_at', manilaMidnight(range.from)).lt('sold_at', manilaMidnight(addDays(range.to, 1)))
       if (search) q = q.ilike('customer_name', `%${search}%`)
@@ -65,21 +65,32 @@ export default function Sales() {
     [range.from, range.to, search, byReceipt, method, otype, status, staff, item],
   )
 
-  const reload = useCallback(async () => {
-    const id = ++req.current
-    setBusy(true)
-    const [list, rep] = await Promise.all([query(0), isManager ? supabase.rpc('sales_report', { p_from: range.from, p_to: range.to }) : { error: true }])
-    if (id !== req.current) return // a newer filter won
-    setBusy(false)
-    if (list.error) return setError(list.error.message)
-    setError(null)
-    setRows(list.data)
-    setCount(list.count ?? list.data.length)
-    if (!rep.error) setSummary(rep.data)
-  }, [query, range.from, range.to, isManager])
+  // The list follows the filters; the summary only follows the date range.
+  const reload = useCallback(
+    async (size = PAGE) => {
+      const id = ++req.current
+      setBusy(true)
+      const list = await query(0, size)
+      if (id !== req.current) return // a newer filter won
+      setBusy(false)
+      if (list.error) return setError(list.error.message)
+      setError(null)
+      setRows(list.data)
+      setCount(list.count ?? list.data.length)
+    },
+    [query],
+  )
+  const loadReport = useCallback(() => {
+    if (isManager) supabase.rpc('sales_report', { p_from: range.from, p_to: range.to }).then(({ data, error }) => !error && setSummary(data))
+  }, [range.from, range.to, isManager])
   useEffect(() => {
     reload()
   }, [reload])
+  useEffect(loadReport, [loadReport])
+  // Keep the pages already loaded, so a sale elsewhere doesn't throw a manager back to the top 50.
+  const shown = useRef(PAGE)
+  shown.current = Math.max(rows?.length ?? 0, PAGE)
+  const refresh = useCallback(() => (reload(shown.current), loadReport()), [reload, loadReport])
   // Live: a sale rung up or voided anywhere shows here. Debounced: one checkout fires an insert and an update.
   useEffect(() => {
     let t
@@ -87,18 +98,20 @@ export default function Sales() {
       .channel('sales-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sales' }, () => {
         clearTimeout(t)
-        t = setTimeout(reload, 500)
+        t = setTimeout(refresh, 500)
       })
       .subscribe()
     return () => {
       clearTimeout(t)
       supabase.removeChannel(ch)
     }
-  }, [reload])
+  }, [refresh])
 
   const more = async () => {
+    const id = req.current
     setBusy(true)
     const { data, error } = await query(rows.length)
+    if (id !== req.current) return // filters changed while loading
     setBusy(false)
     if (error) return setError(error.message)
     setRows((r) => [...r, ...data])
@@ -154,7 +167,7 @@ export default function Sales() {
             <span className="sr-only">Payment method</span>
             <select value={method} onChange={(e) => setMethod(e.target.value)} disabled={byReceipt} className={`${SELECT} w-full`}>
               <option value="">All payments</option>
-              {Object.entries(METHOD).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              {METHODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </label>
           {isManager && (
@@ -180,7 +193,7 @@ export default function Sales() {
         </p>
       </div>
 
-      {error && <div className="mt-4"><Problem onRetry={reload}>Couldn't load sales. {error}</Problem></div>}
+      {error && <div className="mt-4"><Problem onRetry={refresh}>Couldn't load sales. {error}</Problem></div>}
 
       <div className={`${CARD} mt-4 overflow-hidden transition-opacity duration-200 ${busy && rows ? 'opacity-60' : ''}`}>
         {!rows && !error && <SkeletonRows label="Loading sales" />}
@@ -208,7 +221,7 @@ export default function Sales() {
         </button>
       )}
 
-      <AnimatePresence>{open && <ReceiptSheet key="sheet" r={open} names={names} canVoid={isManager} onClose={() => setOpenId(null)} onVoided={reload} />}</AnimatePresence>
+      <AnimatePresence>{open && <ReceiptSheet key="sheet" r={open} names={names} canVoid={isManager} onClose={() => setOpenId(null)} onVoided={refresh} />}</AnimatePresence>
     </main>
   )
 }

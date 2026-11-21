@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from './lib/supabase.js'
+import { disablePush } from './lib/device.js'
 
 const AuthCtx = createContext(null)
 export const ROLE_LABEL = { admin: 'Admin', manager: 'Manager', staff: 'Staff', inactive: 'No access' }
@@ -39,15 +40,7 @@ export function AuthProvider({ children }) {
     isManager: role === 'admin' || role === 'manager',
     isStaff: role === 'admin' || role === 'manager' || role === 'staff',
     // A shared tablet stops getting this person's notifications when they sign out.
-    signOut: async () => {
-      try {
-        const sub = await (await navigator.serviceWorker?.ready)?.pushManager?.getSubscription()
-        if (sub) await supabase.rpc('remove_push_subscription', { p_endpoint: sub.endpoint })
-      } catch {
-        /* nothing to remove */
-      }
-      return supabase.auth.signOut()
-    },
+    signOut: async () => (await disablePush(), supabase.auth.signOut()),
   }
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>
 }

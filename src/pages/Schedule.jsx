@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'motion/react'
 import { ChevronLeft, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
-import { addDays, fmtDay, manilaToday } from '../lib/util.js'
+import { addDays, fmtDay, manilaToday, plural } from '../lib/util.js'
 import { BTN, CARD, FIELD, LABEL, PageHeader, Problem, Sheet, SkeletonRows, Submit, useToast } from '../components/ui.jsx'
 import { useAuth } from '../auth.jsx'
 
@@ -50,11 +50,9 @@ export default function Schedule() {
     setCopying(true)
     const { data, error } = await supabase.from('shifts').select('staff_id, shift_date, start_time, end_time, station, note').gte('shift_date', addDays(week, -7)).lte('shift_date', addDays(week, -1))
     if (error) return setCopying(false), notify(error.message, { tone: 'bad' })
-    let made = 0
-    for (const s of data) {
-      const { error } = await supabase.from('shifts').insert({ ...s, shift_date: addDays(s.shift_date, 7) })
-      if (!error) made++
-    }
+    // One insert each, so a shift that overlaps is skipped without failing the rest.
+    const results = await Promise.all(data.map((s) => supabase.from('shifts').insert({ ...s, shift_date: addDays(s.shift_date, 7) })))
+    const made = results.filter((r) => !r.error).length
     setCopying(false)
     load()
     notify(data.length ? `Copied ${made} of ${data.length} shifts from last week${made < data.length ? ' (the rest overlapped)' : ''}` : 'Last week has no shifts to copy', { tone: data.length ? 'ok' : 'bad' })
@@ -86,7 +84,7 @@ export default function Schedule() {
         <h2 className="tabular min-w-56 text-center text-lg font-bold" aria-live="polite">{range}</h2>
         <button type="button" onClick={() => setWeek((w) => addDays(w, 7))} aria-label="Next week" className="press grid size-10 place-items-center rounded-lg bg-paper ring-1 ring-parchment hover:ring-bean/40"><ChevronRight className="size-5" aria-hidden="true" /></button>
         {week !== monday(t) && <button type="button" onClick={() => setWeek(monday(t))} className="press rounded-lg px-3 py-2 text-sm font-bold text-teal-deep hover:bg-teal/10">This week</button>}
-        {days.includes(t) && shifts && <p className="ml-auto text-sm text-bean">{onToday ? `${onToday} shift${onToday === 1 ? '' : 's'} today` : 'Nobody scheduled today'}</p>}
+        {days.includes(t) && shifts && <p className="ml-auto text-sm text-bean">{onToday ? `${plural(onToday, 'shift')} today` : 'Nobody scheduled today'}</p>}
       </div>
 
       {error && <div className="mt-4"><Problem onRetry={load}>Couldn't load the schedule. {error}</Problem></div>}

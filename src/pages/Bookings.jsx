@@ -11,7 +11,7 @@ import { useAuth } from '../auth.jsx'
 import { notifyTeam } from '../lib/device.js'
 
 // ---- Words for every state: icon + label + tone, never colour alone ----
-export const STATUS = {
+const STATUS = {
   pending: { label: 'Holding, unpaid', tone: 'warn', Icon: Hourglass },
   confirmed: { label: 'Confirmed', tone: 'info', Icon: CircleCheck },
   checked_in: { label: 'In house', tone: 'ok', Icon: DoorOpen },
@@ -350,8 +350,11 @@ function Calendar({ bookings, rooms, open, add }) {
   const color = Object.fromEntries(rooms.map((r) => [r.id, r.color]))
   const byDay = new Map()
   const live = bookings.filter((b) => [...LIVE, 'checked_out'].includes(b.status)).sort((a, b) => (order[a.room_id] ?? 99) - (order[b.room_id] ?? 99))
-  for (const b of live)
+  const monthEnd = days[days.length - 1]
+  for (const b of live) {
+    if (b.check_out <= days[0] || b.check_in > monthEnd) continue // only walk stays that touch this month
     for (let d = b.check_in; d < b.check_out; d = addDays(d, 1)) if (d.startsWith(key)) byDay.set(d, [...(byDay.get(d) ?? []), b])
+  }
   const active = rooms.filter((r) => r.is_active).length
   const nights = [...byDay.values()].reduce((s, l) => s + l.length, 0)
   const occ = active ? Math.round((nights / (active * count)) * 100) : 0
@@ -446,9 +449,14 @@ function BookingDrawer({ b, room, isManager, act, onClose, onEdit }) {
   const balance = b.total - b.paid
   const canPay = ['pending', 'confirmed', 'checked_in', 'checked_out'].includes(b.status) && balance > 0
   useEffect(() => {
-    supabase.from('booking_changes').select('*').eq('booking_id', b.id).order('changed_at', { ascending: false }).limit(50).then(({ data }) => setHistory(data ?? []))
     supabase.from('profiles').select('id, full_name').then(({ data }) => setPeople(Object.fromEntries((data ?? []).map((p) => [p.id, p.full_name]))))
-  }, [b.id, b.status, b.paid])
+  }, [])
+  // `b` is a new object after every realtime reload, which arrives after the save and its history row commit.
+  useEffect(() => {
+    let live = true
+    supabase.from('booking_changes').select('*').eq('booking_id', b.id).order('changed_at', { ascending: false }).limit(50).then(({ data }) => live && setHistory(data ?? []))
+    return () => (live = false)
+  }, [b])
 
   const pay = (e) => {
     e.preventDefault()

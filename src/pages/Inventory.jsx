@@ -7,7 +7,6 @@ import { BTN, Badge, CARD, Chips, Empty, FIELD, Kpis, LABEL, PageHeader, Problem
 import { stockOf } from './Register.jsx'
 import { useAuth } from '../auth.jsx'
 
-const qtyInput = (set) => (e) => /^\d*\.?\d{0,2}$/.test(e.target.value) && set(e.target.value)
 const KIND = { made: 'Made to order', good: 'Ready to sell', supply: 'Supply' }
 const BADGE = { low: ['warn', CircleAlert, 'Low'], out: ['bad', CircleX, 'Out'], ok: ['ok', CircleCheck, 'OK'] }
 const qty = (n, unit) => `${+Number(n).toFixed(2)}${unit && unit !== 'pc' ? ` ${unit}` : ''}`
@@ -128,7 +127,7 @@ export default function Inventory() {
       <AnimatePresence>
         {open && (open.create || current) && (
           <Drawer
-            key="drawer"
+            key={open.id ?? 'new'}
             product={current}
             tab={open.tab}
             isManager={isManager}
@@ -221,6 +220,7 @@ function Drawer({ product, tab: initial = 'stock', isManager, categories, people
 
 function StockTab({ product: p, initial = 'receive', onDone }) {
   const notify = useToast()
+  const { session } = useAuth()
   const [mode, setMode] = useState(initial)
   const [n, setN] = useState('')
   const [cost, setCost] = useState('')
@@ -235,7 +235,6 @@ function StockTab({ product: p, initial = 'receive', onDone }) {
     if (n === '' || (mode !== 'count' && value <= 0)) return setErr(mode === 'count' ? 'Enter what you counted.' : 'Enter how many.')
     setBusy(true)
     setErr(null)
-    const { data: me } = await supabase.auth.getUser()
     let error
     if (mode === 'count') ({ error } = await supabase.rpc('set_stock_count', { p_product_id: p.id, p_counted: value, p_note: note.trim() || null }))
     else
@@ -246,7 +245,7 @@ function StockTab({ product: p, initial = 'receive', onDone }) {
         unit_cost: mode === 'receive' && cost !== '' ? Number(cost) : null,
         supplier: supplier.trim() || null,
         note: note.trim() || null,
-        created_by: me.user.id,
+        created_by: session.user.id,
       }))
     setBusy(false)
     if (error) return setErr(error.message)

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Route, Routes } from 'react-router'
 import { motion } from 'motion/react'
-import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { METHOD, ORDER_TYPE, addDays, fmtDay, money, monthStart, pct, plural, shortPeso } from '../lib/util.js'
@@ -12,7 +11,6 @@ import { Empty, Kpis, PageHeader, Panel, Problem, RangePicker, presets, rangeLab
 const C = { profit: '#2f625e', cost: '#b3412e', one: '#4f8f8a', grid: '#eadfd0', axis: '#77614f', ink: '#4a3428' }
 const RAMP = ['#e3f4f1', '#bfe8e3', '#93dcd4', '#5fb9b0', '#3b8f88', '#2f625e'] // sequential teal, light → dark
 const num = (v) => Number(v) || 0
-const axis = { stroke: C.axis, fontSize: 12, tickLine: false, axisLine: false }
 
 // Days for short ranges, weeks (from Monday) up to ~7 months, then months.
 function bucketize(rows, keys, maxDays = 62) {
@@ -157,17 +155,8 @@ function SalesChart({ rows }) {
   return (
     <>
       <Legend items={[['Cost of food & goods', C.cost], ['Gross profit', C.profit]]} />
-      <div className="mt-2 h-72">
-        <ResponsiveContainer>
-          <BarChart data={chart} margin={{ top: 8, right: 4, left: 4, bottom: 0 }} barCategoryGap={chart.length > 20 ? 2 : '20%'}>
-            <CartesianGrid stroke={C.grid} vertical={false} />
-            <XAxis dataKey="label" {...axis} minTickGap={24} />
-            <YAxis {...axis} width={52} tickFormatter={shortPeso} />
-            <Tooltip cursor={{ fill: 'rgb(74 52 40 / 0.05)' }} content={<Tip fmt={money} total />} />
-            <Bar dataKey="cost" name="Cost" stackId="s" fill={C.cost} stroke="#fffcf7" strokeWidth={1} maxBarSize={40} animationDuration={600} />
-            <Bar dataKey="profit" name="Profit" stackId="s" fill={C.profit} stroke="#fffcf7" strokeWidth={1} radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={600} />
-          </BarChart>
-        </ResponsiveContainer>
+      <div className="mt-2">
+        <Columns label="Sales per period, split into cost and profit" data={chart} series={[['cost', 'Cost', C.cost], ['profit', 'Profit', C.profit]]} fmt={money} tick={shortPeso} total />
       </div>
       <details className="mt-3 text-sm">
         <summary className="cursor-pointer font-semibold text-bean hover:text-espresso">View as table</summary>
@@ -189,18 +178,67 @@ function SalesChart({ rows }) {
 // One series, one colour; value labels at the bar end. rows: [{ name, value }]
 function HBars({ rows, fmt = money, color = C.one }) {
   if (!rows.length) return <Empty>Nothing in this range.</Empty>
+  const max = Math.max(...rows.map((r) => r.value), 0) || 1
   return (
-    <div style={{ height: Math.max(120, rows.length * 40) }}>
-      <ResponsiveContainer>
-        <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 72, left: 0, bottom: 0 }}>
-          <XAxis type="number" hide />
-          <YAxis type="category" dataKey="name" {...axis} width={150} tick={{ fill: C.ink, fontSize: 13 }} />
-          <Tooltip cursor={{ fill: 'rgb(74 52 40 / 0.05)' }} content={<Tip fmt={fmt} />} />
-          <Bar dataKey="value" name="Value" fill={color} radius={[0, 4, 4, 0]} barSize={18} animationDuration={600}>
-            <LabelList dataKey="value" position="right" fontSize={12} fill={C.ink} formatter={fmt} />
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+    <ul className="space-y-2.5 text-[13px]" style={{ color: C.ink }}>
+      {rows.map((r, i) => (
+        <li key={i} className="grid grid-cols-[minmax(0,9.5rem)_minmax(0,1fr)] items-center gap-3">
+          <span className="truncate text-right" title={r.name}>{r.name}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            {/* 75% leaves room for the value label after the longest bar. */}
+            <span className="grow-x h-[18px] shrink-0 rounded-r" style={{ width: `${(r.value / max) * 75}%`, minWidth: r.value ? 2 : 0, background: color }} />
+            <span className="tabular shrink-0 text-xs">{fmt(r.value)}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// Round an axis top up to 1, 2, 2.5 or 5 × a power of ten.
+const niceTop = (v) => {
+  if (v <= 0) return 1
+  const p = 10 ** Math.floor(Math.log10(v))
+  return [1, 2, 2.5, 5, 10].find((m) => m * p >= v) * p
+}
+
+// Vertical bars, optionally stacked. series: [[key, name, colour]], bottom first. Hover shows the values.
+function Columns({ label, data, series, fmt, tick = fmt, total = false, ints = false }) {
+  const [at, setAt] = useState(null)
+  const sums = data.map((d) => series.reduce((s, [k]) => s + num(d[k]), 0))
+  let top = niceTop(Math.max(...sums))
+  if (ints) top = top <= 4 ? Math.ceil(top) : Math.ceil(top / 4) * 4 // whole-number gridlines
+  const parts = ints && top < 4 ? top : 4
+  const ticks = Array.from({ length: parts + 1 }, (_, i) => (top / parts) * i)
+  const every = Math.ceil(data.length / 8) // x labels that fit
+  const d = at === null ? null : data[at]
+  return (
+    <div className="flex h-72 gap-2 text-xs" style={{ color: C.axis }} role="img" aria-label={label}>
+      <div className="tabular relative mb-6 w-12 shrink-0 text-right">
+        {ticks.map((t) => <span key={t} className="absolute right-0 translate-y-1/2" style={{ bottom: `${(t / top) * 100}%` }}>{tick(t)}</span>)}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex-1" onPointerLeave={() => setAt(null)}>
+          {ticks.map((t) => <div key={t} className="absolute inset-x-0 border-t" style={{ bottom: `${(t / top) * 100}%`, borderColor: C.grid }} />)}
+          <div className="absolute inset-0 flex items-end" style={{ gap: data.length > 20 ? 2 : '2%' }}>
+            {data.map((row, i) => (
+              <div key={row.date} onPointerEnter={() => setAt(i)} className="flex h-full min-w-0 flex-1 items-end justify-center rounded-t" style={{ background: at === i ? 'rgb(74 52 40 / 0.05)' : undefined }}>
+                <div className="grow-y flex w-[80%] max-w-10 flex-col-reverse gap-px overflow-hidden rounded-t" style={{ height: `${(sums[i] / top) * 100}%` }}>
+                  {series.map(([k, , c]) => <div key={k} className="shrink-0" style={{ height: `${(num(row[k]) / (sums[i] || 1)) * 100}%`, background: c }} />)}
+                </div>
+              </div>
+            ))}
+          </div>
+          {d && (
+            <div className="pointer-events-none absolute top-0 z-10 -translate-x-1/2" style={{ left: `${Math.min(85, Math.max(15, ((at + 0.5) / data.length) * 100))}%` }}>
+              <Tip active label={d.label} fmt={fmt} total={total} payload={series.map(([k, name, color]) => ({ dataKey: k, name, value: d[k], color, payload: d }))} />
+            </div>
+          )}
+        </div>
+        <div className="flex h-6 items-end">
+          {data.map((row, i) => <span key={row.date} className="min-w-0 flex-1 text-center whitespace-nowrap">{i % every ? '' : row.label}</span>)}
+        </div>
+      </div>
     </div>
   )
 }
@@ -455,17 +493,7 @@ function RoomsTab({ r }) {
       <div className="mt-6 grid gap-6 xl:grid-cols-5">
         <Panel title="Rooms taken" note={`Rooms occupied per ${unit} (out of ${r.rooms} each night)`} className="xl:col-span-3">
           {data.some((d) => d.occupied) ? (
-            <div className="h-72">
-              <ResponsiveContainer>
-                <BarChart data={data} margin={{ top: 8, right: 4, left: 4, bottom: 0 }} barCategoryGap={data.length > 20 ? 2 : '20%'}>
-                  <CartesianGrid stroke={C.grid} vertical={false} />
-                  <XAxis dataKey="label" {...axis} minTickGap={24} />
-                  <YAxis {...axis} width={40} allowDecimals={false} />
-                  <Tooltip cursor={{ fill: 'rgb(74 52 40 / 0.05)' }} content={<Tip fmt={(v) => plural(num(v), 'room-night')} />} />
-                  <Bar dataKey="occupied" name="Taken" fill={C.one} radius={[4, 4, 0, 0]} maxBarSize={40} animationDuration={600} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <Columns label={`Rooms occupied per ${unit}`} data={data} series={[['occupied', 'Taken', C.one]]} fmt={(v) => plural(num(v), 'room-night')} tick={String} ints />
           ) : (
             <Empty>No nights booked in this range.</Empty>
           )}

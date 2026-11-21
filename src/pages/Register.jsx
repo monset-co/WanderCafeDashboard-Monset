@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Bike, CircleCheck, Loader2, Minus, NotebookPen, Plus, Search, ShoppingBag, Tag, UserRound, UtensilsCrossed, X } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
-import { METHODS, METHOD, ORDER_TYPE, ORDER_TYPES, fmtDateTime, manilaMidnight, manilaToday, money, moneyInput, receiptNo, round2, uuid } from '../lib/util.js'
+import { METHODS, METHOD, ORDER_TYPE, ORDER_TYPES, fmtDateTime, manilaMidnight, manilaToday, money, moneyInput, plural, receiptNo, round2, uuid } from '../lib/util.js'
 import { Chips, CountUp, EASE_OUT, PlaneOff, Problem } from '../components/ui.jsx'
 import { useAuth } from '../auth.jsx'
 
@@ -145,15 +145,15 @@ export default function Register() {
     }
     const { data: sale } = await supabase
       .from('sales')
-      .select('sale_no, sold_at, order_type, subtotal, discount, total, note, amount_tendered, change_due, payment_method, payment_ref, customer_name, sale_items(product_name, qty, line_total)')
+      .select('sale_no, sold_at, order_type, discount, total, note, amount_tendered, change_due, payment_method, payment_ref, customer_name, sale_items(product_name, qty, line_total)')
       .eq('id', id)
       .single()
     // The sale is saved either way; fall back to what the register knows if the read-back failed.
     setReceipt(
       sale ?? {
-        sale_no: null, sold_at: new Date().toISOString(), order_type: orderType, subtotal, discount: disc, total, note: note.trim() || null,
+        sale_no: null, sold_at: new Date().toISOString(), order_type: orderType, discount: disc, total, note: note.trim() || null,
         amount_tendered: paid, change_due: change, payment_method: method, payment_ref: method === 'gcash' ? gcashRef : null,
-        customer_name: customer.trim() || null, sale_items: lines.map((l) => ({ product_name: l.name, qty: l.qty, line_total: l.qty * l.selling_price })),
+        customer_name: customer.trim() || null, sale_items: lines.map((l) => ({ product_name: l.name, qty: l.qty, line_total: round2(l.qty * l.selling_price) })),
       },
     )
     reset()
@@ -246,7 +246,7 @@ export default function Register() {
             transition={{ duration: 0.32, ease: EASE_OUT }}
           >
             <span className="flex items-center gap-2 font-semibold">
-              <ShoppingBag className="size-5 text-tiffany" aria-hidden="true" /> {count} item{count === 1 ? '' : 's'}
+              <ShoppingBag className="size-5 text-tiffany" aria-hidden="true" /> {plural(count, 'item')}
             </span>
             <span className="tabular font-display text-2xl font-semibold">Review {money(total)}</span>
           </motion.button>

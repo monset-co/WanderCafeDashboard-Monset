@@ -68,7 +68,7 @@ Adding logins and resetting passwords need the server function, so they only wor
 1. `npm run vapid` prints a key pair.
 2. Build variable: `VITE_VAPID_PUBLIC_KEY` = the public key. Worker variables: `VAPID_PUBLIC_KEY` (same) and `VAPID_PRIVATE_KEY` (**secret**). Optional: `VAPID_SUBJECT` = `mailto:` the owner's email.
 3. Redeploy. Each person taps **Turn on notifications** on each device (iPhone/iPad: install first via Share › Add to Home Screen, then turn them on from the installed app). A test notification arrives straight away.
-4. Website bookings (when the website is live): Supabase › Database › Webhooks › Create: table `bookings`, event Insert, type HTTP POST to `https://<dashboard-domain>/api/notify`, header `x-webhook-secret: <any long random text>`. Add the same text as the Worker secret `WEBHOOK_SECRET`.
+4. Website bookings and pre-orders (when the website is live): see [integrations/website/README.md](integrations/website/README.md), step 5.
 
 Who gets what: admin updates go to everyone they're for (staff and managers, or managers only); new bookings go to managers and admins.
 
@@ -81,8 +81,8 @@ Who gets what: admin updates go to everyone they're for (staff and managers, or 
 
 ## When the website goes live
 
-Point it at this same Supabase project and replace its `supabase/schema.sql` tables with these (same `bookings` columns, money in centavos). One change in the website: its PayMongo webhook should set `status = 'confirmed'` and `paid = <amount>` where it now sets `status = 'paid'`. Website bookings then appear in the dashboard live, marked "Website".
+Online room bookings and cafe pre-orders are ready to flow in: see [integrations/website/README.md](integrations/website/README.md). Website bookings then show in Bookings marked "Website", and paid pre-orders land on the order board and in Sales.
 
 ## Not built yet
 
-Receipt printer output, expenses and payroll (CourageD has them), recipe-level ingredient deduction (supplies are counted by hand), and showing the website's online cafe orders here.
+Receipt printer output, expenses and payroll (CourageD has them), recipe-level ingredient deduction (supplies are counted by hand).

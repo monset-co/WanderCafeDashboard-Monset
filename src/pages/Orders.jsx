@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Check, Clock, NotebookPen, RotateCcw, UserRound } from 'lucide-react'
-import { Link, useNavigate } from 'react-router'
-import { useUpdates } from '../lib/updates.js'
-import { LatestUpdate } from './Updates.jsx'
-import { useAuth } from '../auth.jsx'
+import { Link } from 'react-router'
+import { LatestUpdate } from '../components/LatestUpdate.jsx'
 import { supabase } from '../lib/supabase.js'
 import { ORDER_TYPE, ORDER_TYPES, receiptNo } from '../lib/util.js'
 import { BTN, CARD, Chips, PageHeader, Problem, useToast } from '../components/ui.jsx'
@@ -18,16 +16,15 @@ const wait = (m) => (m >= 25 ? ['bg-tomato/10 text-tomato', `${m} min`] : m >= 1
 // The kitchen and counter's board: every order rung up today, preparing until someone taps Done.
 export default function Orders() {
   const notify = useToast()
-  const navigate = useNavigate()
-  const { session } = useAuth()
-  const { latest } = useUpdates(session.user.id)
   const [orders, setOrders] = useState(null)
   const [error, setError] = useState(null)
   const [type, setType] = useState('all')
   const [, tick] = useState(0)
 
+  const saving = useRef(0) // a poll that lands mid-save would flash the card back
   const load = useCallback(async () => {
     const { data, error } = await supabase.rpc('order_board')
+    if (saving.current) return
     if (error) return setError(error.message)
     setError(null)
     setOrders(data)
@@ -46,7 +43,9 @@ export default function Orders() {
   const setStatus = async (o, status) => {
     const patch = { order_status: status, completed_at: status === 'completed' ? new Date().toISOString() : null }
     setOrders((os) => os.map((x) => (x.id === o.id ? { ...x, ...patch } : x)))
+    saving.current++
     const { error } = await supabase.rpc('set_order_status', { p_sale_id: o.id, p_status: status })
+    saving.current--
     if (error) {
       notify(error.message, { tone: 'bad' })
       return load()
@@ -64,7 +63,7 @@ export default function Orders() {
       <PageHeader title="Orders" sub="Oldest first. Tap Done when an order is served, picked up or out for delivery.">
         <Link to="/register" className={BTN.primary}>New order</Link>
       </PageHeader>
-      <LatestUpdate latest={latest} onOpen={() => navigate('/updates')} />
+      <LatestUpdate />
       <div className="mt-6">
         <Chips id="ord-type" label="Order type" value={type} onChange={setType} options={[['all', 'All', openCount('all')], ...ORDER_TYPES.map(([v, l]) => [v, l, openCount(v)])]} />
       </div>
