@@ -460,6 +460,41 @@ create table if not exists public.bookings (
     daterange(check_in, check_out) with &&
   ) where (status in ('pending', 'confirmed', 'checked_in'))
 );
+-- Upgrade a bookings table made by the website's own schema (WanderCafe-monset/supabase/schema.sql):
+-- same columns, minus the team's ones, and 'paid' where this uses 'confirmed' + the paid amount.
+-- Does nothing on a table created above.
+alter table public.bookings add column if not exists notes      text not null default '';
+alter table public.bookings add column if not exists paid       integer not null default 0;
+alter table public.bookings add column if not exists source     text not null default 'web';
+alter table public.bookings add column if not exists created_by uuid references auth.users(id) default auth.uid();
+alter table public.bookings alter column ref set default ('WDR-' || upper(substr(md5(gen_random_uuid()::text), 1, 6)));
+alter table public.bookings alter column email set default '';
+alter table public.bookings alter column phone set default '';
+alter table public.bookings alter column guests set default 1;
+alter table public.bookings alter column total set default 0;
+alter table public.bookings alter column deposit set default 0;
+do $$
+begin
+  if exists (select 1 from pg_constraint where conrelid = 'public.bookings'::regclass and conname = 'bookings_status_check'
+             and pg_get_constraintdef(oid) like '%''paid''%') then
+    alter table public.bookings drop constraint bookings_status_check;
+    alter table public.bookings drop constraint if exists no_double_booking;
+    update public.bookings set paid = greatest(paid, deposit), status = 'confirmed' where status = 'paid';
+    alter table public.bookings add constraint bookings_status_check
+      check (status in ('pending', 'confirmed', 'checked_in', 'checked_out', 'cancelled', 'expired', 'conflict'));
+    alter table public.bookings add constraint no_double_booking exclude using gist (
+      room_id with =, daterange(check_in, check_out) with &&
+    ) where (status in ('pending', 'confirmed', 'checked_in'));
+  end if;
+  if not exists (select 1 from pg_constraint where conrelid = 'public.bookings'::regclass and conname = 'bookings_source_check') then
+    alter table public.bookings add constraint bookings_source_check check (source in ('web', 'walk_in', 'phone', 'facebook', 'other'));
+  end if;
+  if not exists (select 1 from pg_constraint where conrelid = 'public.bookings'::regclass and contype = 'f' and conname = 'bookings_room_id_fkey') then
+    -- not valid: older rows aren't re-checked; every new or changed booking must name a real room.
+    alter table public.bookings add constraint bookings_room_id_fkey foreign key (room_id) references public.rooms(id) not valid;
+  end if;
+end $$;
+
 create index if not exists bookings_check_in_idx on public.bookings (check_in);
 create index if not exists bookings_check_out_idx on public.bookings (check_out, status);
 

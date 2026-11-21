@@ -132,4 +132,37 @@ assert.equal(br.nights_sold, 7); assert.equal(br.nights_available, 62); assert.e
 assert.equal(+br.revenue, 360000 + 360000 + 360000 + 360000); ok('bookings report: 7 of 62 nights, ₱14,400 room revenue, 1 cancellation')
 await fails(S, `select bookings_report('2030-01-01', '2030-01-31')`, /Only a manager/); ok('staff cannot open the rooms report')
 
+// ---- a project where the website's schema ran first (WanderCafe-monset/supabase/schema.sql) ----
+const web = new PGlite({ extensions: { btree_gist } })
+await web.exec(`
+  create role anon nologin; create role authenticated nologin; create schema auth;
+  create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}', last_sign_in_at timestamptz);
+  create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+  grant usage on schema public, auth to anon, authenticated; grant execute on function auth.uid() to anon, authenticated;
+  alter default privileges in schema public grant all on tables to anon, authenticated;
+  alter default privileges in schema public grant all on sequences to anon, authenticated;
+  alter default privileges in schema public grant execute on functions to anon, authenticated;
+  create extension btree_gist;
+  create table bookings (
+    id bigint generated always as identity primary key, ref text not null unique, room_id text not null,
+    check_in date not null, check_out date not null check (check_out > check_in), guests int not null check (guests > 0),
+    name text not null, email text not null, phone text not null, total int not null, deposit int not null,
+    status text not null default 'pending' check (status in ('pending', 'paid', 'checked_in', 'expired', 'conflict', 'cancelled')),
+    payment_id text, created_at timestamptz not null default now(),
+    constraint no_double_booking exclude using gist (room_id with =, daterange(check_in, check_out) with &&) where (status in ('pending', 'paid', 'checked_in')));
+  insert into bookings (ref, room_id, check_in, check_out, guests, name, email, phone, total, deposit, status)
+    values ('WDR-OLD001', 'room-a', '2030-03-01', '2030-03-03', 2, 'Web Guest', 'g@x.ph', '0917', 360000, 180000, 'paid');
+  insert into auth.users (id, email) values ('${S}', 'staff@x');`) // signed up before the dashboard schema: no profile yet
+await web.exec(sql)
+await web.exec(sql)
+await web.exec(`insert into profiles (id, full_name, role) select id, email, 'staff' from auth.users where id = '${S}' on conflict (id) do update set role = 'staff'`)
+const old = (await web.query(`select status, paid from bookings where ref = 'WDR-OLD001'`)).rows[0]
+assert.deepEqual([old.status, old.paid], ['confirmed', 180000]); ok("website's 'paid' booking becomes confirmed with its deposit paid")
+await web.query(`select set_config('request.jwt.claim.sub', $1, false)`, [S])
+await web.exec('set role authenticated')
+const nb = (await web.query(`insert into bookings (room_id, check_in, check_out, name, phone, source, status) values ('room-b', '2030-03-01', '2030-03-02', 'Walk In', '0918', 'walk_in', 'confirmed') returning ref, created_by`)).rows[0]
+await assert.rejects(web.query(`insert into bookings (room_id, check_in, check_out, name, phone, source, status) values ('room-a', '2030-03-02', '2030-03-04', 'Clash', '0918', 'phone', 'confirmed')`), /no_double_booking/)
+await web.exec('reset role')
+assert.match(nb.ref, /^WDR-/); assert.equal(nb.created_by, S); ok('upgraded table: staff books with a generated ref; overlaps still refused')
+
 console.log(`\nall ${n} checks passed`)
