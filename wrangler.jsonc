@@ -7,6 +7,12 @@
   // Variables live in Cloudflare › Settings › Variables and Secrets (SUPABASE_URL, VAPID_*…):
   // keep them on every deploy instead of replacing them with this file's (none).
   "keep_vars": true,
+  // Public values, safe in the repo (the public key is also built into the app as VITE_VAPID_PUBLIC_KEY).
+  // Secrets never go here: SUPABASE_SERVICE_ROLE_KEY, VAPID_PRIVATE_KEY, WEBHOOK_SECRET.
+  "vars": {
+    "VAPID_PUBLIC_KEY": "BPW4MbQWTYz37fBARlMC_qgfDyjygvnPPJTOci4gsyVEf1ujP__EmHBI-Vf_m5Pw2HB5OOwP-ped8haujCag-ac",
+    "VAPID_SUBJECT": "mailto:wandercafemoalboal@gmail.com"
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
