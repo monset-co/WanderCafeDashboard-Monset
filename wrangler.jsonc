@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wandercafedashboard-monset",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-19",
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // Any page path (/sales, /bookings…) serves index.html; the app's router takes it from there.
+    "not_found_handling": "single-page-application",
+    // /api/* must reach the worker instead of falling back to index.html.
+    "run_worker_first": ["/api/*"]
+  }
+}

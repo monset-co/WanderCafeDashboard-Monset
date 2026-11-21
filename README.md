@@ -43,17 +43,20 @@ npm test                     # schema in a real Postgres (PGlite) + the staff AP
 
 Adding logins and resetting passwords need the server function, so they only work on the deployed site.
 
-## Deploy on Cloudflare Pages
+## Deploy on Cloudflare (Workers, connected to GitHub)
 
-1. Cloudflare › Workers & Pages › Create › Pages › Connect to Git › this repo.
-2. Build command `npm run build`, output directory `dist`.
-3. Settings › Variables and secrets (Production):
-   - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (plain text)
-   - `SUPABASE_SERVICE_ROLE_KEY` (**secret**; used only by `functions/api/staff.js`, which checks the caller is an admin. Never prefix it with `VITE_`.)
-4. Custom domains › add e.g. `dashboard.<client-domain>` (the domain is already on Cloudflare, so DNS is automatic).
-5. Supabase › Authentication › URL Configuration: set the Site URL to that address.
+`wrangler.jsonc` is the whole setup: the built app is served from `dist/` (any page path falls back to the app), and `worker/index.js` runs the one server route, `POST /api/staff`. Every push to `main` deploys.
 
-`public/_headers` sets security headers (CSP allows only this site and `*.supabase.co`); `public/_redirects` sends every path to the app.
+1. Workers & Pages › the `wandercafedashboard-monset` Worker › Settings › Build: build command `npm run build`, deploy command `npx wrangler deploy`.
+2. Settings › Build › **Variables and secrets** (read while building, so the app knows its Supabase):
+   - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+3. Settings › **Variables and Secrets** (the running Worker):
+   - `SUPABASE_URL` (text) and `SUPABASE_SERVICE_ROLE_KEY` (**secret**). Used only by `/api/staff`, which checks the caller is an admin. Never prefix the service key with `VITE_`.
+4. Redeploy after changing the build variables (they're baked into the build).
+5. Settings › Domains & Routes › add a custom domain, e.g. `dashboard.<client-domain>` (the domain is on Cloudflare, so DNS is automatic).
+6. Supabase › Authentication › URL Configuration: set the Site URL to that address.
+
+`public/_headers` sets security headers (CSP allows only this site and `*.supabase.co`).
 
 ## Day to day
 
