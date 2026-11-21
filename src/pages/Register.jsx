@@ -167,8 +167,8 @@ export default function Register() {
       <div className="lg:grid lg:h-dvh lg:grid-cols-[minmax(0,1fr)_23rem] xl:grid-cols-[minmax(0,1fr)_26rem]">
         <section className="min-w-0 px-4 pt-5 pb-28 sm:px-6 lg:overflow-y-auto lg:pb-10">
           <h1 className="sr-only">Register</h1>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center">
-            <label className="relative block md:w-64 md:shrink-0">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+            <label className="relative block w-full sm:w-64 sm:shrink-0">
               <span className="sr-only">Search the menu or scan a code</span>
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-bean" aria-hidden="true" />
               <input
@@ -181,12 +181,14 @@ export default function Register() {
                 className="h-11 w-full rounded-full bg-paper pr-3 pl-10 ring-1 ring-parchment outline-none placeholder:text-bean/70 focus:ring-2 focus:ring-teal-deep"
               />
             </label>
-            <Chips id="reg-cat" label="Category" value={cat} onChange={setCat} options={categories.map((c) => [c, c])} />
             {today && (
-              <p className="tabular shrink-0 text-sm text-bean md:ml-auto md:text-right" title={isManager ? 'Everyone’s sales today' : 'Your sales today'}>
+              <p className="tabular shrink-0 text-sm text-bean sm:ml-auto sm:text-right" title={isManager ? 'Everyone’s sales today' : 'Your sales today'}>
                 {isManager ? 'Today' : 'Your sales today'} <b className="font-bold text-espresso"><CountUp value={today.revenue} format={money} /></b> · <CountUp value={today.receipts} /> receipt{today.receipts === 1 ? '' : 's'}
               </p>
             )}
+            <div className="flex w-full min-w-0">
+              <Chips id="reg-cat" label="Category" value={cat} onChange={setCat} options={categories.map((c) => [c, c])} />
+            </div>
           </div>
 
           {loadError && (
@@ -220,7 +222,7 @@ export default function Register() {
 
         <aside aria-label="Current order" className={`bg-roast text-paper lg:flex lg:min-h-0 lg:flex-col lg:overflow-y-auto ${sheet ? 'sheet-in fixed inset-0 z-40 flex flex-col overflow-y-auto' : 'max-lg:hidden'}`}>
           <Cart
-            {...{ lines, count, subtotal, total, method, setMethod, tendered, setTendered, gcashRef, setGcashRef, discount, setDiscount, discTooBig, customer, setCustomer, note, setNote, change, busy, error, canCharge, charge, setQty }}
+            {...{ lines, count, subtotal, total, method, setMethod, tendered, setTendered, gcashRef, setGcashRef, refMissing, discount, setDiscount, discTooBig, customer, setCustomer, note, setNote, change, busy, error, canCharge, charge, setQty }}
             onClear={() => setCart([])}
             onClose={() => setSheet(false)}
           />
@@ -303,7 +305,7 @@ function ProductTile({ p, inCart, onAdd }) {
 const darkField = 'h-11 w-full rounded-lg bg-roast-2 px-3 text-paper ring-1 ring-paper/10 outline-none transition-shadow duration-150 placeholder:text-foam/60 focus:ring-2 focus:ring-tiffany'
 const chip = 'press flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-semibold ring-1 ring-paper/15 text-foam hover:text-paper'
 
-function Cart({ lines, count, subtotal, total, method, setMethod, tendered, setTendered, gcashRef, setGcashRef, discount, setDiscount, discTooBig, customer, setCustomer, note, setNote, change, busy, error, canCharge, charge, setQty, onClear, onClose }) {
+function Cart({ lines, count, subtotal, total, method, setMethod, tendered, setTendered, gcashRef, setGcashRef, refMissing, discount, setDiscount, discTooBig, customer, setCustomer, note, setNote, change, busy, error, canCharge, charge, setQty, onClear, onClose }) {
   const [open, setOpen] = useState({}) // which optional fields are showing
   const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }))
   useEffect(() => {

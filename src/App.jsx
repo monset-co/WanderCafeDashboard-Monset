@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { Component, lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router'
 import { MotionConfig, motion } from 'motion/react'
 import { BarChart3, BedDouble, Boxes, LogOut, ReceiptText, ShoppingBag, UsersRound } from 'lucide-react'
@@ -62,12 +62,12 @@ function Shell() {
         </div>
         <nav aria-label="Main" className="flex min-w-0 flex-1 gap-1 overflow-x-auto lg:flex-none lg:flex-col lg:overflow-visible">
           {nav.map(([label, to, Icon]) => (
-            <NavLink key={to} to={to} end={to === '/'} title={label} className="group relative flex h-10 shrink-0 items-center gap-3 rounded-lg px-3 text-sm font-bold lg:h-11 lg:justify-center xl:justify-start">
+            <NavLink key={to} to={to} end={to === '/'} title={label} aria-label={label} className="group relative flex h-10 shrink-0 items-center gap-3 rounded-lg px-3 text-sm font-bold lg:h-11 lg:justify-center xl:justify-start">
               {({ isActive }) => (
                 <>
                   {isActive && <motion.span layoutId="nav-brush" className="brush absolute inset-x-0 inset-y-0.5" transition={{ type: 'spring', duration: 0.35, bounce: 0 }} />}
                   <Icon className={`relative size-[1.15rem] shrink-0 transition-colors duration-150 ${isActive ? 'text-roast' : 'text-foam group-hover:text-paper'}`} aria-hidden="true" />
-                  <span className={`relative transition-colors duration-150 max-md:sr-only lg:sr-only xl:not-sr-only ${isActive ? 'text-roast' : 'text-foam group-hover:text-paper'}`}>{label}</span>
+                  <span aria-hidden="true" className={`relative hidden transition-colors duration-150 xl:inline ${isActive ? 'text-roast' : 'text-foam group-hover:text-paper'}`}>{label}</span>
                 </>
               )}
             </NavLink>
@@ -80,11 +80,13 @@ function Shell() {
           </p>
           <button type="button" onClick={signOut} title="Sign out" className="press flex h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-foam ring-1 ring-paper/10 hover:text-paper xl:justify-start">
             <LogOut className="size-4" aria-hidden="true" />
-            <span className="sr-only xl:not-sr-only">Sign out</span>
+            <span className="hidden xl:inline">Sign out</span>
+            <span className="sr-only xl:hidden">Sign out</span>
           </button>
         </div>
       </aside>
       <div className="min-w-0">
+        <Crash>
         <Suspense fallback={null}>
           <Routes>
             <Route path="/" element={<Register />} />
@@ -96,7 +98,29 @@ function Shell() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        </Crash>
       </div>
     </div>
   )
+}
+
+// A page that crashes shows what broke instead of a blank screen; the nav stays usable.
+class Crash extends Component {
+  state = { error: null }
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <main role="alert" className="grid min-h-[70dvh] place-items-center px-4 text-center">
+        <div className="max-w-md">
+          <h1 className="font-display text-3xl font-semibold">This page hit a problem</h1>
+          <p className="mt-2 text-bean">Nothing was lost. Reload to try again, and if it keeps happening, send this to whoever set up the dashboard:</p>
+          <code className="mt-3 block rounded-lg bg-paper px-3 py-2 text-sm text-tomato ring-1 ring-parchment">{String(this.state.error?.message ?? this.state.error)}</code>
+          <button type="button" onClick={() => location.reload()} className="press mt-5 h-11 rounded-lg bg-teal-deep px-5 font-semibold text-paper">Reload</button>
+        </div>
+      </main>
+    )
+  }
 }
