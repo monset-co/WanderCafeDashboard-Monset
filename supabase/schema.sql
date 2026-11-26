@@ -1138,12 +1138,19 @@ insert into public.products (code, name, category, kind, selling_price, sort) va
   ('NC07', 'Strawberry Matcha',          'Non-Coffee',       'made', 165, 7),
   ('NC08', 'Golden Milk / Pink Milk',    'Non-Coffee',       'made',  99, 8),
   ('AD01', 'Add black coffee or juice',  'Add-ons',          'made',  50, 1),
-  ('AD02', 'Add cheese slice',           'Add-ons',          'made',  20, 2)
+  ('AD02', 'Add cheese slice',           'Add-ons',          'made',  20, 2),
+  -- What's New posters (Nov 2026); the website sells these by the same codes
+  ('NW01', 'Homestyle Chicken',          'What''s New',      'made', 165, 1),
+  ('NW02', 'Crispy Pata (ala carte)',    'What''s New',      'made', 665, 2),
+  ('NW03', 'Crispy Pata Group Meal',     'What''s New',      'made', 799, 3),
+  ('NW04', 'Vietnamese Salad',           'What''s New',      'made', 249, 4),
+  ('NW05', 'Crispy Lumpia',              'What''s New',      'made', 129, 5)
 on conflict (code) do nothing;
 
 -- ---------------------------------------------------------------------
 -- 12. WEBSITE: online room bookings and cafe pre-orders
--- The website (WanderCafe-monset) writes with the service key. It saves an unpaid
+-- The website (WanderCafe-monset) runs on this project: it reads products (code, selling_price, is_active)
+-- for its menu and prices, and writes with the service key. It saves an unpaid
 -- booking / order at checkout, then on PayMongo's "paid" webhook calls ONE function:
 --   bookings: confirm_web_booking(ref, payment_id)        -> 'confirmed' | 'conflict' | 'unchanged'
 --   orders:   record_web_order(ref, payment_id, method)   -> the POS sale id (shows on the order board)
